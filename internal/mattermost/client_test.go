@@ -203,3 +203,90 @@ func TestDeletePost(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAddReaction(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v4/reactions", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s", r.Method)
+		}
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["user_id"] != "u1" || body["post_id"] != "p1" || body["emoji_name"] != "+1" {
+			t.Fatalf("unexpected reaction body: %#v", body)
+		}
+		_ = json.NewEncoder(w).Encode(mmReaction{UserID: "u1", PostID: "p1", EmojiName: "+1"})
+	})
+	mux.HandleFunc("/api/v4/posts/p1", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("get method = %s", r.Method)
+		}
+		_ = json.NewEncoder(w).Encode(mmPost{
+			ID:        "p1",
+			ChannelID: "c1",
+			UserID:    "u2",
+			Message:   "hello",
+			Metadata: &mmPostMetadata{Reactions: []mmReaction{
+				{UserID: "u1", PostID: "p1", EmojiName: "+1"},
+				{UserID: "u2", PostID: "p1", EmojiName: "+1"},
+				{UserID: "u2", PostID: "p1", EmojiName: "eyes"},
+			}},
+		})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := New(config.Config{ServerURL: server.URL, Token: "token"})
+	client.userID = "u1"
+	post, err := client.AddReaction(context.Background(), "p1", "+1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(post.Reactions) != 2 {
+		t.Fatalf("reactions = %#v", post.Reactions)
+	}
+	if post.Reactions[0].Name != "+1" || post.Reactions[0].Count != 2 || !post.Reactions[0].Reacted {
+		t.Fatalf("bad own reaction aggregation: %#v", post.Reactions)
+	}
+	if post.Reactions[1].Name != "eyes" || post.Reactions[1].Count != 1 || post.Reactions[1].Reacted {
+		t.Fatalf("bad other reaction aggregation: %#v", post.Reactions)
+	}
+}
+
+func TestRemoveReaction(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v4/users/u1/posts/p1/reactions/+1", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Fatalf("method = %s", r.Method)
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/api/v4/posts/p1", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("get method = %s", r.Method)
+		}
+		_ = json.NewEncoder(w).Encode(mmPost{
+			ID:        "p1",
+			ChannelID: "c1",
+			UserID:    "u2",
+			Message:   "hello",
+			Metadata: &mmPostMetadata{Reactions: []mmReaction{
+				{UserID: "u2", PostID: "p1", EmojiName: "+1"},
+			}},
+		})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := New(config.Config{ServerURL: server.URL, Token: "token"})
+	client.userID = "u1"
+	post, err := client.RemoveReaction(context.Background(), "p1", "+1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(post.Reactions) != 1 || post.Reactions[0].Name != "+1" || post.Reactions[0].Count != 1 || post.Reactions[0].Reacted {
+		t.Fatalf("bad reaction state after remove: %#v", post.Reactions)
+	}
+}

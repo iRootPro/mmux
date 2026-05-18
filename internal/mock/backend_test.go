@@ -171,3 +171,40 @@ func TestDeletePostRemovesStoredMessage(t *testing.T) {
 		}
 	}
 }
+
+func TestAddReactionMutatesStoredPost(t *testing.T) {
+	b := New()
+	posts, err := b.LoadPosts(context.Background(), "dev", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := posts[len(posts)-1]
+
+	updated, err := b.AddReaction(context.Background(), target.ID, "+1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.Reactions) != 1 || updated.Reactions[0].Name != "+1" || updated.Reactions[0].Count != 1 || !updated.Reactions[0].Reacted {
+		t.Fatalf("updated reactions = %#v", updated.Reactions)
+	}
+}
+
+func TestRemoveReactionMutatesStoredPost(t *testing.T) {
+	b := New()
+	posts, err := b.LoadPosts(context.Background(), "dev", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := posts[len(posts)-1]
+	if _, err := b.AddReaction(context.Background(), target.ID, "+1"); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := b.RemoveReaction(context.Background(), target.ID, "+1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.Reactions) != 0 {
+		t.Fatalf("updated reactions = %#v", updated.Reactions)
+	}
+}

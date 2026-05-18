@@ -160,6 +160,38 @@ func (b *Backend) DeletePost(ctx context.Context, postID string) error {
 	return fmt.Errorf("post %q not found", postID)
 }
 
+func (b *Backend) AddReaction(ctx context.Context, postID, emojiName string) (domain.Post, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for channelID, posts := range b.posts {
+		for i := range posts {
+			if posts[i].ID != postID {
+				continue
+			}
+			posts[i] = mergeAddedMockReaction(posts[i], emojiName)
+			b.posts[channelID][i] = posts[i]
+			return posts[i], nil
+		}
+	}
+	return domain.Post{}, fmt.Errorf("post %q not found", postID)
+}
+
+func (b *Backend) RemoveReaction(ctx context.Context, postID, emojiName string) (domain.Post, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for channelID, posts := range b.posts {
+		for i := range posts {
+			if posts[i].ID != postID {
+				continue
+			}
+			posts[i] = mergeRemovedMockReaction(posts[i], emojiName)
+			b.posts[channelID][i] = posts[i]
+			return posts[i], nil
+		}
+	}
+	return domain.Post{}, fmt.Errorf("post %q not found", postID)
+}
+
 func (b *Backend) sendPost(channelID, rootID, message string) (domain.Post, error) {
 	message = strings.TrimSpace(message)
 	if message == "fail-send" {
@@ -233,6 +265,35 @@ func (b *Backend) broadcast(ev domain.Event) {
 	for _, watcher := range watchers {
 		watcher <- ev
 	}
+}
+
+func mergeAddedMockReaction(post domain.Post, emojiName string) domain.Post {
+	for i := range post.Reactions {
+		if post.Reactions[i].Name != emojiName {
+			continue
+		}
+		post.Reactions[i].Count++
+		post.Reactions[i].Reacted = true
+		return post
+	}
+	post.Reactions = append(post.Reactions, domain.PostReaction{Name: emojiName, Count: 1, Reacted: true})
+	return post
+}
+
+func mergeRemovedMockReaction(post domain.Post, emojiName string) domain.Post {
+	for i := range post.Reactions {
+		if post.Reactions[i].Name != emojiName {
+			continue
+		}
+		if post.Reactions[i].Count <= 1 {
+			post.Reactions = append(post.Reactions[:i], post.Reactions[i+1:]...)
+			return post
+		}
+		post.Reactions[i].Count--
+		post.Reactions[i].Reacted = false
+		return post
+	}
+	return post
 }
 
 func mockControlEvents(message string) ([]domain.Event, bool) {

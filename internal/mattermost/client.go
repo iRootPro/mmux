@@ -344,6 +344,34 @@ func (c *Client) DeletePost(ctx context.Context, postID string) error {
 	return nil
 }
 
+func (c *Client) AddReaction(ctx context.Context, postID, emojiName string) (domain.Post, error) {
+	userID := c.currentUserID()
+	if userID == "" {
+		return domain.Post{}, fmt.Errorf("not connected")
+	}
+	body := map[string]string{
+		"user_id":    userID,
+		"post_id":    postID,
+		"emoji_name": emojiName,
+	}
+	if err := c.do(ctx, http.MethodPost, "/api/v4/reactions", body, nil); err != nil {
+		return domain.Post{}, fmt.Errorf("add reaction: %w", err)
+	}
+	return c.loadPostByID(ctx, postID)
+}
+
+func (c *Client) RemoveReaction(ctx context.Context, postID, emojiName string) (domain.Post, error) {
+	userID := c.currentUserID()
+	if userID == "" {
+		return domain.Post{}, fmt.Errorf("not connected")
+	}
+	path := "/api/v4/users/" + url.PathEscape(userID) + "/posts/" + url.PathEscape(postID) + "/reactions/" + url.PathEscape(emojiName)
+	if err := c.do(ctx, http.MethodDelete, path, nil, nil); err != nil {
+		return domain.Post{}, fmt.Errorf("remove reaction: %w", err)
+	}
+	return c.loadPostByID(ctx, postID)
+}
+
 func (c *Client) sendPost(ctx context.Context, channelID, rootID, message string) (domain.Post, error) {
 	message = strings.TrimSpace(message)
 	if message == "" {
@@ -387,6 +415,38 @@ func (c *Client) usernameFor(userID string) string {
 	return c.displayNameCache[userID]
 }
 
+func (c *Client) loadPostByID(ctx context.Context, postID string) (domain.Post, error) {
+	var post mmPost
+	if err := c.do(ctx, http.MethodGet, "/api/v4/posts/"+url.PathEscape(postID), nil, &post); err != nil {
+		return domain.Post{}, fmt.Errorf("get post: %w", err)
+	}
+	out := post.toDomain(post.ChannelID)
+	out.Username = c.usernameFor(out.UserID)
+	out.Reactions = c.reactionsToDomain(post.Metadata)
+	return out, nil
+}
+
+func (c *Client) reactionsToDomain(metadata *mmPostMetadata) []domain.PostReaction {
+	if metadata == nil || len(metadata.Reactions) == 0 {
+		return nil
+	}
+	currentUserID := c.currentUserID()
+	indexByName := make(map[string]int, len(metadata.Reactions))
+	out := make([]domain.PostReaction, 0, len(metadata.Reactions))
+	for _, reaction := range metadata.Reactions {
+		idx, ok := indexByName[reaction.EmojiName]
+		if !ok {
+			idx = len(out)
+			indexByName[reaction.EmojiName] = idx
+			out = append(out, domain.PostReaction{Name: reaction.EmojiName})
+		}
+		out[idx].Count++
+		if currentUserID != "" && reaction.UserID == currentUserID {
+			out[idx].Reacted = true
+		}
+	}
+	return out
+}
 func (c *Client) cacheUsers(users []mmUser) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -715,16 +775,27 @@ type mmPostList struct {
 	Posts map[string]mmPost `json:"posts"`
 }
 
+type mmReaction struct {
+	UserID    string `json:"user_id"`
+	PostID    string `json:"post_id"`
+	EmojiName string `json:"emoji_name"`
+}
+
+type mmPostMetadata struct {
+	Reactions []mmReaction `json:"reactions,omitempty"`
+}
+
 type mmPost struct {
-	ID         string `json:"id"`
-	ChannelID  string `json:"channel_id"`
-	RootID     string `json:"root_id"`
-	UserID     string `json:"user_id"`
-	Message    string `json:"message"`
-	CreateAt   int64  `json:"create_at"`
-	UpdateAt   int64  `json:"update_at"`
-	DeleteAt   int64  `json:"delete_at"`
-	ReplyCount int    `json:"reply_count"`
+	ID         string          `json:"id"`
+	ChannelID  string          `json:"channel_id"`
+	RootID     string          `json:"root_id"`
+	UserID     string          `json:"user_id"`
+	Message    string          `json:"message"`
+	CreateAt   int64           `json:"create_at"`
+	UpdateAt   int64           `json:"update_at"`
+	DeleteAt   int64           `json:"delete_at"`
+	ReplyCount int             `json:"reply_count"`
+	Metadata   *mmPostMetadata `json:"metadata,omitempty"`
 }
 
 func (p mmPost) toDomain(fallbackChannelID string) domain.Post {

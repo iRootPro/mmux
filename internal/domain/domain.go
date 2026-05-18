@@ -42,6 +42,12 @@ type Channel struct {
 	Status       string
 }
 
+type PostReaction struct {
+	Name    string
+	Count   int
+	Reacted bool
+}
+
 // Post is a normalized chat message.
 type Post struct {
 	ID           string
@@ -56,6 +62,7 @@ type Post struct {
 	CreateAt     int64
 	UpdateAt     int64
 	ReplyCount   int
+	Reactions    []PostReaction
 }
 
 // Session contains initial data returned after connecting.
@@ -149,6 +156,8 @@ type Backend interface {
 	SendReply(ctx context.Context, channelID, rootID, message string) (Post, error)
 	UpdatePost(ctx context.Context, postID, message string) (Post, error)
 	DeletePost(ctx context.Context, postID string) error
+	AddReaction(ctx context.Context, postID, emojiName string) (Post, error)
+	RemoveReaction(ctx context.Context, postID, emojiName string) (Post, error)
 	WatchPosts(ctx context.Context, events chan<- Event) error
 	Close() error
 }
