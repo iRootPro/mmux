@@ -317,14 +317,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case postSentMsg:
-		if msg.channelID != m.currentChannelID() {
-			m.loading = false
-			return m, nil
-		}
 		m.loading = false
 		if msg.err != nil {
 			m.err = msg.err.Error()
-			m.status = "send failed"
+			m.restorePendingSend(msg.draftKey, msg.text)
+			m.status = "send failed · draft restored"
+			return m, nil
+		}
+		m.completePendingSend(msg.draftKey)
+		if msg.channelID != m.currentChannelID() {
 			return m, nil
 		}
 		m.err = ""
@@ -661,10 +662,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if text == "" || m.currentChannelID() == "" {
 				return m, nil
 			}
-			m.composer.Reset()
+			key := m.currentDraftKey()
+			m.beginPendingSend(key, text)
 			m.status = "sending…"
 			m.loading = true
-			return m, sendPostCmd(m.ctx, m.backend, m.currentChannelID(), text)
+			return m, sendPostCmd(m.ctx, m.backend, m.currentChannelID(), key, text)
 		case "ctrl+j":
 			m.composer.InsertString("\n")
 			return m, nil

@@ -21,6 +21,9 @@ func draftKey(s string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
 
+type assertErr struct{}
+
+func (assertErr) Error() string { return "boom" }
 func TestDraftKeysAreStable(t *testing.T) {
 	if got := channelDraftKey("dev"); got != "channel:dev" {
 		t.Fatalf("channel key = %q", got)
@@ -152,5 +155,53 @@ func TestChannelAndThreadDraftsAreIsolated(t *testing.T) {
 	m.loadDraft(threadDraftKey("dev", "root"))
 	if got := m.composer.Value(); got != "reply text" {
 		t.Fatalf("thread composer = %q", got)
+	}
+}
+
+func TestFailedChannelSendRestoresDraft(t *testing.T) {
+	m := New(nil, testConfig(), false)
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.loadDraft(channelDraftKey("dev"))
+	m.composer.SetValue("hello")
+
+	updated, _ := m.handleKey(draftKey("enter"))
+	m = updated.(Model)
+	if got := m.composer.Value(); got != "" {
+		t.Fatalf("composer should clear while sending, got %q", got)
+	}
+
+	key := channelDraftKey("dev")
+	updated, _ = m.Update(postSentMsg{channelID: "dev", draftKey: key, text: "hello", err: assertErr{}})
+	got := updated.(Model)
+	if got.composer.Value() != "hello" {
+		t.Fatalf("failed send restored composer = %q", got.composer.Value())
+	}
+	if got.drafts[key] != "hello" {
+		t.Fatalf("failed send restored draft = %q", got.drafts[key])
+	}
+	if got.status != "send failed · draft restored" {
+		t.Fatalf("status = %q", got.status)
+	}
+}
+
+func TestSuccessfulChannelSendClearsOnlySentDraft(t *testing.T) {
+	key := channelDraftKey("dev")
+	other := channelDraftKey("alerts")
+	m := New(nil, testConfig(), false)
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.loadDraft(key)
+	m.drafts[key] = "hello"
+	m.drafts[other] = "keep me"
+	m.pendingSends[key] = "hello"
+
+	updated, _ := m.Update(postSentMsg{channelID: "dev", draftKey: key, text: "hello", post: domain.Post{ID: "p1", ChannelID: "dev", Message: "hello"}})
+	got := updated.(Model)
+	if _, ok := got.drafts[key]; ok {
+		t.Fatalf("sent draft should clear: %#v", got.drafts)
+	}
+	if got.drafts[other] != "keep me" {
+		t.Fatalf("other draft lost: %#v", got.drafts)
 	}
 }

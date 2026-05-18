@@ -38,6 +38,8 @@ type olderPostsLoadedMsg struct {
 
 type postSentMsg struct {
 	channelID string
+	draftKey  string
+	text      string
 	post      domain.Post
 	err       error
 }
@@ -161,10 +163,10 @@ func loadThreadCmd(ctx context.Context, backend domain.Backend, rootID string) t
 	}
 }
 
-func sendPostCmd(ctx context.Context, backend domain.Backend, channelID, text string) tea.Cmd {
+func sendPostCmd(ctx context.Context, backend domain.Backend, channelID, draftKey, text string) tea.Cmd {
 	return func() tea.Msg {
 		post, err := backend.SendPost(ctx, channelID, text)
-		return postSentMsg{channelID: channelID, post: post, err: err}
+		return postSentMsg{channelID: channelID, draftKey: draftKey, text: text, post: post, err: err}
 	}
 }
 
