@@ -117,7 +117,7 @@ So the recommended CLI flow is either a Mattermost personal/session token via
 - `ctrl+j` — newline in composer
 - `[` or `ctrl+o` — load older messages
 - timeline focus: `j/k` select message, `y` copy text, `o` open first link, `t` open thread
-- `ctrl+r` — reload current channel
+- `ctrl+r` — reload current channel or retry connection/scope loading when offline; if auth expired, refresh token and restart
 - `?` — help
 - `q` outside composer / `ctrl+c` — quit
 

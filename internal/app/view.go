@@ -1411,7 +1411,7 @@ func (m Model) helpText() string {
   y                 copy selected message text
   o / enter         open first link in selected message
   t                 open thread for selected message
-  ctrl+r            reload current channel
+  ctrl+r            reload current channel or reconnect when offline
   ?                 toggle help
   q / ctrl+c        quit
 

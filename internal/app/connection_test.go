@@ -78,3 +78,11 @@ func TestAuthExpiredDoesNotPretendReconnectSucceeded(t *testing.T) {
 		t.Fatalf("expected auth expired state, got %q", got.connectionState)
 	}
 }
+
+func TestHelpTextMentionsReconnectBehavior(t *testing.T) {
+	m := Model{}
+	got := m.helpText()
+	if !strings.Contains(got, "ctrl+r") || !strings.Contains(got, "reconnect") {
+		t.Fatalf("help text missing reconnect hint: %q", got)
+	}
+}
