@@ -55,3 +55,41 @@ func TestSaveActiveDraftDropsEmptyDraft(t *testing.T) {
 		t.Fatalf("empty draft should be removed: %#v", m.drafts)
 	}
 }
+
+func TestChannelDraftSurvivesChannelSwitch(t *testing.T) {
+	m := New(nil, testConfig(), false)
+	m.channels = []domain.Channel{
+		{ID: "dev", Type: "O", DisplayName: "dev"},
+		{ID: "alerts", Type: "O", DisplayName: "alerts"},
+	}
+	m.selectedChannel = 0
+	m.loadDraft(channelDraftKey("dev"))
+	m.composer.SetValue("dev text")
+
+	updated, _ := m.selectChannel(1)
+	m = updated.(Model)
+	if got := m.composer.Value(); got != "" {
+		t.Fatalf("alerts composer = %q, want empty", got)
+	}
+
+	m.composer.SetValue("alerts text")
+	updated, _ = m.selectChannel(0)
+	m = updated.(Model)
+	if got := m.composer.Value(); got != "dev text" {
+		t.Fatalf("dev draft restored = %q", got)
+	}
+	if got := m.drafts[channelDraftKey("alerts")]; got != "alerts text" {
+		t.Fatalf("alerts draft saved = %q", got)
+	}
+}
+
+func TestInitialChannelLoadsChannelDraftKey(t *testing.T) {
+	m := New(nil, testConfig(), false)
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+
+	m.switchDraft(m.currentDraftKey())
+	if got := m.activeDraftKey; got != channelDraftKey("dev") {
+		t.Fatalf("active draft key = %q", got)
+	}
+}

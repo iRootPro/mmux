@@ -191,6 +191,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = ""
 		m.channels = msg.channels
 		m.selectedChannel = m.pickChannel()
+		m.switchDraft(m.currentDraftKey())
 		m.rebuildTriageItems()
 		if len(m.channels) == 0 {
 			m.status = "no channels"
@@ -1100,7 +1101,9 @@ func (m Model) selectChannel(index int) (tea.Model, tea.Cmd) {
 	if index < 0 || index >= len(m.channels) || index == m.selectedChannel {
 		return m, nil
 	}
+	m.saveActiveDraft()
 	m.selectedChannel = index
+	m.loadDraft(m.currentDraftKey())
 	return m.openCurrentChannel()
 }
 
@@ -1226,6 +1229,9 @@ func (m Model) openCurrentChannel() (tea.Model, tea.Cmd) {
 	channelID := m.currentChannelID()
 	if channelID == "" {
 		return m, nil
+	}
+	if m.activeDraftKey == "" {
+		m.loadDraft(m.currentDraftKey())
 	}
 	m.clearUnread(channelID)
 	m.rebuildTriageItems()
