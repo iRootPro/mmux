@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -534,12 +536,12 @@ func (c *Client) login(ctx context.Context) error {
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("login request: %w", err)
+		return wrapRequestError("login request", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("login failed: %s: %s", resp.Status, strings.TrimSpace(string(msg)))
+		return wrapHTTPError("login", resp.StatusCode, strings.TrimSpace(string(msg)))
 	}
 	token := resp.Header.Get("Token")
 	if token == "" {
@@ -553,6 +555,52 @@ func (c *Client) login(ctx context.Context) error {
 	c.token = token
 	c.mu.Unlock()
 	return nil
+}
+
+func wrapHTTPError(op string, status int, message string) error {
+	kind := domain.BackendErrorUnknown
+	retryable := false
+	switch {
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		kind = domain.BackendErrorAuth
+		retryable = false
+	case status >= http.StatusInternalServerError:
+		kind = domain.BackendErrorServer
+		retryable = true
+	}
+	var err error
+	if message != "" {
+		err = errors.New(message)
+	}
+	return &domain.BackendError{
+		Op:         op,
+		Kind:       kind,
+		StatusCode: status,
+		Retryable:  retryable,
+		Err:        err,
+	}
+}
+
+func wrapRequestError(op string, err error) error {
+	kind := domain.BackendErrorUnknown
+	retryable := false
+	var netErr net.Error
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, context.Canceled):
+		kind = domain.BackendErrorNetwork
+		retryable = false
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &netErr):
+		kind = domain.BackendErrorNetwork
+		retryable = true
+	}
+	return &domain.BackendError{
+		Op:        op,
+		Kind:      kind,
+		Retryable: retryable,
+		Err:       err,
+	}
 }
 
 func (c *Client) do(ctx context.Context, method, path string, in any, out any) error {
@@ -578,12 +626,12 @@ func (c *Client) do(ctx context.Context, method, path string, in any, out any) e
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return err
+		return wrapRequestError(method+" "+path, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(msg)))
+		return wrapHTTPError(method+" "+path, resp.StatusCode, strings.TrimSpace(string(msg)))
 	}
 	if out == nil {
 		return nil

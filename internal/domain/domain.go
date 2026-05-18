@@ -1,6 +1,10 @@
 package domain
 
-import "context"
+import (
+	"context"
+	"strconv"
+	"time"
+)
 
 // User is the authenticated Mattermost user.
 type User struct {
@@ -61,13 +65,68 @@ type Session struct {
 	Teams     []Team
 }
 
+type ConnectionState string
+
+const (
+	ConnectionConnecting   ConnectionState = "connecting"
+	ConnectionConnected    ConnectionState = "connected"
+	ConnectionReconnecting ConnectionState = "reconnecting"
+	ConnectionOffline      ConnectionState = "offline"
+	ConnectionAuthExpired  ConnectionState = "auth_expired"
+)
+
+type BackendErrorKind string
+
+const (
+	BackendErrorAuth    BackendErrorKind = "auth"
+	BackendErrorNetwork BackendErrorKind = "network"
+	BackendErrorServer  BackendErrorKind = "server"
+	BackendErrorUnknown BackendErrorKind = "unknown"
+)
+
+type BackendError struct {
+	Op         string
+	Kind       BackendErrorKind
+	StatusCode int
+	Retryable  bool
+	Err        error
+}
+
+func (e *BackendError) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
+	msg := e.Op
+	if msg == "" {
+		msg = "backend error"
+	}
+	if e.StatusCode != 0 {
+		msg += ": status " + strconv.Itoa(e.StatusCode)
+	}
+	if e.Err != nil {
+		msg += ": " + e.Err.Error()
+	}
+	return msg
+}
+
+func (e *BackendError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
 // Event is emitted by a backend watcher.
 type Event struct {
-	Kind   string
-	Post   Post
-	UserID string
-	Status string
-	Err    error
+	Kind    string
+	Post    Post
+	UserID  string
+	Status  string
+	State   ConnectionState
+	Attempt int
+	RetryIn time.Duration
+	Message string
+	Err     error
 }
 
 const (
