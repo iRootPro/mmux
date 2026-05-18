@@ -231,7 +231,13 @@ func (b *updateRecordingBackend) UpdatePost(_ context.Context, postID, message s
 	}
 	return domain.Post{ID: postID, ChannelID: "c1", UserID: "me", Username: "You", Message: message}, nil
 }
-func (b *updateRecordingBackend) DeletePost(context.Context, string) error              { return nil }
+func (b *updateRecordingBackend) DeletePost(context.Context, string) error { return nil }
+func (b *updateRecordingBackend) AddReaction(context.Context, string, string) (domain.Post, error) {
+	return domain.Post{}, nil
+}
+func (b *updateRecordingBackend) RemoveReaction(context.Context, string, string) (domain.Post, error) {
+	return domain.Post{}, nil
+}
 func (b *updateRecordingBackend) WatchPosts(context.Context, chan<- domain.Event) error { return nil }
 func (b *updateRecordingBackend) Close() error                                          { return nil }
 
@@ -336,6 +342,12 @@ func (b *deleteRecordingBackend) UpdatePost(context.Context, string, string) (do
 func (b *deleteRecordingBackend) DeletePost(_ context.Context, postID string) error {
 	b.deletedPostID = postID
 	return b.deleteErr
+}
+func (b *deleteRecordingBackend) AddReaction(context.Context, string, string) (domain.Post, error) {
+	return domain.Post{}, nil
+}
+func (b *deleteRecordingBackend) RemoveReaction(context.Context, string, string) (domain.Post, error) {
+	return domain.Post{}, nil
 }
 func (b *deleteRecordingBackend) WatchPosts(context.Context, chan<- domain.Event) error { return nil }
 func (b *deleteRecordingBackend) Close() error                                          { return nil }

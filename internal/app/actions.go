@@ -293,6 +293,50 @@ func formatQuotedReply(post domain.Post) string {
 	return b.String()
 }
 
+func reactionState(post domain.Post, emojiName string) (domain.PostReaction, bool) {
+	for _, reaction := range post.Reactions {
+		if reaction.Name == emojiName {
+			return reaction, true
+		}
+	}
+	return domain.PostReaction{}, false
+}
+
+func mergeAddedReaction(post domain.Post, emojiName string) domain.Post {
+	reactions := append([]domain.PostReaction(nil), post.Reactions...)
+	for i := range reactions {
+		if reactions[i].Name != emojiName {
+			continue
+		}
+		reactions[i].Count++
+		reactions[i].Reacted = true
+		post.Reactions = reactions
+		return post
+	}
+	reactions = append(reactions, domain.PostReaction{Name: emojiName, Count: 1, Reacted: true})
+	post.Reactions = reactions
+	return post
+}
+
+func mergeRemovedReaction(post domain.Post, emojiName string) domain.Post {
+	reactions := append([]domain.PostReaction(nil), post.Reactions...)
+	for i := range reactions {
+		if reactions[i].Name != emojiName {
+			continue
+		}
+		if reactions[i].Count <= 1 {
+			post.Reactions = append(reactions[:i], reactions[i+1:]...)
+			return post
+		}
+		reactions[i].Count--
+		reactions[i].Reacted = false
+		post.Reactions = reactions
+		return post
+	}
+	post.Reactions = reactions
+	return post
+}
+
 func firstURL(s string) string {
 	if match := markdownLinkRE.FindStringSubmatch(s); len(match) == 3 {
 		return match[2]

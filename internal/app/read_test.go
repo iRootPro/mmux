@@ -321,7 +321,13 @@ func (b *viewRecordingBackend) SendReply(context.Context, string, string, string
 func (b *viewRecordingBackend) UpdatePost(context.Context, string, string) (domain.Post, error) {
 	return domain.Post{}, nil
 }
-func (b *viewRecordingBackend) DeletePost(context.Context, string) error              { return nil }
+func (b *viewRecordingBackend) DeletePost(context.Context, string) error { return nil }
+func (b *viewRecordingBackend) AddReaction(context.Context, string, string) (domain.Post, error) {
+	return domain.Post{}, nil
+}
+func (b *viewRecordingBackend) RemoveReaction(context.Context, string, string) (domain.Post, error) {
+	return domain.Post{}, nil
+}
 func (b *viewRecordingBackend) WatchPosts(context.Context, chan<- domain.Event) error { return nil }
 func (b *viewRecordingBackend) Close() error                                          { return nil }
 
