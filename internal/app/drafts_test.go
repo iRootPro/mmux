@@ -256,3 +256,47 @@ func TestSuccessfulThreadReplyClearsOnlyThreadDraft(t *testing.T) {
 		t.Fatalf("channel draft lost: %#v", got.drafts)
 	}
 }
+
+func TestFailedSendForInactiveChannelDoesNotOverwriteCurrentComposer(t *testing.T) {
+	devKey := channelDraftKey("dev")
+	alertsKey := channelDraftKey("alerts")
+	m := New(nil, testConfig(), false)
+	m.channels = []domain.Channel{
+		{ID: "dev", Type: "O", DisplayName: "dev"},
+		{ID: "alerts", Type: "O", DisplayName: "alerts"},
+	}
+	m.selectedChannel = 1
+	m.loadDraft(alertsKey)
+	m.composer.SetValue("current alerts text")
+	m.pendingSends[devKey] = "failed dev text"
+
+	updated, _ := m.Update(postSentMsg{channelID: "dev", draftKey: devKey, text: "failed dev text", err: assertErr{}})
+	got := updated.(Model)
+	if got.composer.Value() != "current alerts text" {
+		t.Fatalf("inactive failure overwrote current composer: %q", got.composer.Value())
+	}
+	if got.drafts[devKey] != "failed dev text" {
+		t.Fatalf("inactive failed draft not stored: %#v", got.drafts)
+	}
+}
+
+func TestFailedReplyForInactiveThreadDoesNotOverwriteChannelComposer(t *testing.T) {
+	threadKey := threadDraftKey("dev", "root")
+	channelKey := channelDraftKey("dev")
+	m := New(nil, testConfig(), false)
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.threadOpen = false
+	m.loadDraft(channelKey)
+	m.composer.SetValue("channel text")
+	m.pendingSends[threadKey] = "failed reply"
+
+	updated, _ := m.Update(replySentMsg{channelID: "dev", rootID: "root", draftKey: threadKey, text: "failed reply", err: assertErr{}})
+	got := updated.(Model)
+	if got.composer.Value() != "channel text" {
+		t.Fatalf("inactive reply failure overwrote composer: %q", got.composer.Value())
+	}
+	if got.drafts[threadKey] != "failed reply" {
+		t.Fatalf("inactive failed reply draft not stored: %#v", got.drafts)
+	}
+}
