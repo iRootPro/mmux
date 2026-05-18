@@ -17,6 +17,95 @@ func TestMarkChannelReadClearsUnreadAndMentions(t *testing.T) {
 	}
 }
 
+func TestClearThreadReadSignalReconcilesChannelUnreadAndMentions(t *testing.T) {
+	m := Model{
+		channels: []domain.Channel{{ID: "dev", Unread: 3, Mentions: 1}},
+		posts: []domain.Post{
+			{ID: "root", ChannelID: "dev", ThreadUnread: true, ReplyCount: 2},
+			{ID: "reply-1", ChannelID: "dev", RootID: "root", Unread: true},
+			{ID: "reply-2", ChannelID: "dev", RootID: "root", Mentioned: true},
+			{ID: "other", ChannelID: "dev", Unread: true},
+		},
+		postsByChannel: map[string][]domain.Post{
+			"dev": {
+				{ID: "root", ChannelID: "dev", ThreadUnread: true, ReplyCount: 2},
+				{ID: "reply-1", ChannelID: "dev", RootID: "root", Unread: true},
+				{ID: "reply-2", ChannelID: "dev", RootID: "root", Mentioned: true},
+				{ID: "other", ChannelID: "dev", Unread: true},
+			},
+		},
+		threadRootID: "root",
+		threadPosts: []domain.Post{
+			{ID: "root", ChannelID: "dev", ThreadUnread: true, ReplyCount: 2},
+			{ID: "reply-1", ChannelID: "dev", RootID: "root", Unread: true},
+			{ID: "reply-2", ChannelID: "dev", RootID: "root", Mentioned: true},
+		},
+	}
+
+	m.clearThreadReadSignal("dev", "root")
+
+	if m.channels[0].Unread != 1 || m.channels[0].Mentions != 0 {
+		t.Fatalf("channel counters not reconciled after clearing thread read signal: %#v", m.channels[0])
+	}
+	for _, post := range m.posts {
+		if post.ID != "other" && (post.Unread || post.Mentioned || post.ThreadUnread) {
+			t.Fatalf("current posts retain thread flags after thread read: %#v", m.posts)
+		}
+	}
+	for _, post := range m.postsByChannel["dev"] {
+		if post.ID != "other" && (post.Unread || post.Mentioned || post.ThreadUnread) {
+			t.Fatalf("cached posts retain thread flags after thread read: %#v", m.postsByChannel["dev"])
+		}
+	}
+	for _, post := range m.threadPosts {
+		if post.Unread || post.Mentioned || post.ThreadUnread {
+			t.Fatalf("loaded thread retains thread flags after thread read: %#v", m.threadPosts)
+		}
+	}
+}
+
+func TestMarkChannelReadClearsImportantFlagsAndLoadedThreadState(t *testing.T) {
+	m := Model{
+		channels: []domain.Channel{{ID: "dev", Unread: 2, Mentions: 1}},
+		posts: []domain.Post{
+			{ID: "root", ChannelID: "dev", ThreadUnread: true},
+			{ID: "reply", ChannelID: "dev", RootID: "root", Unread: true, Mentioned: true},
+		},
+		postsByChannel: map[string][]domain.Post{
+			"dev": {
+				{ID: "root", ChannelID: "dev", ThreadUnread: true},
+				{ID: "reply", ChannelID: "dev", RootID: "root", Unread: true, Mentioned: true},
+			},
+		},
+		threadRootID: "root",
+		threadPosts: []domain.Post{
+			{ID: "root", ChannelID: "dev", ThreadUnread: true},
+			{ID: "reply", ChannelID: "dev", RootID: "root", Unread: true, Mentioned: true},
+		},
+	}
+
+	m.markChannelRead("dev")
+
+	if m.channels[0].Unread != 0 || m.channels[0].Mentions != 0 {
+		t.Fatalf("channel not cleared after markChannelRead: %#v", m.channels[0])
+	}
+	for _, post := range m.posts {
+		if post.Unread || post.Mentioned || post.ThreadUnread {
+			t.Fatalf("current posts retain important flags after channel read: %#v", m.posts)
+		}
+	}
+	for _, post := range m.postsByChannel["dev"] {
+		if post.Unread || post.Mentioned || post.ThreadUnread {
+			t.Fatalf("cached posts retain important flags after channel read: %#v", m.postsByChannel["dev"])
+		}
+	}
+	for _, post := range m.threadPosts {
+		if post.Unread || post.Mentioned || post.ThreadUnread {
+			t.Fatalf("loaded thread retains important flags after channel read: %#v", m.threadPosts)
+		}
+	}
+}
+
 func TestLivePostInCurrentChannelSendsViewChannel(t *testing.T) {
 	backend := &viewRecordingBackend{}
 	m := Model{

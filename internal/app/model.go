@@ -1701,7 +1701,7 @@ func (m Model) initialSelectedPost(channelID string) int {
 }
 
 func isImportantPost(post domain.Post) bool {
-	return post.Mentioned || post.Unread || post.ThreadUnread
+	return importantPost(post)
 }
 
 func (m *Model) showCachedPosts(channelID string) bool {
@@ -1853,97 +1853,11 @@ func (m Model) channelIndexByID(channelID string) int {
 }
 
 func (m *Model) markChannelRead(channelID string) {
-	for i := range m.channels {
-		if m.channels[i].ID == channelID {
-			m.channels[i].Unread = 0
-			m.channels[i].Mentions = 0
-			break
-		}
-	}
-	m.clearPostReadFlags(channelID)
-}
-
-func (m *Model) clearPostReadFlags(channelID string) {
-	for i := range m.posts {
-		if m.posts[i].ChannelID == channelID {
-			m.posts[i].Unread = false
-			m.posts[i].Mentioned = false
-			m.posts[i].ThreadUnread = false
-		}
-	}
-	if m.postsByChannel == nil {
-		return
-	}
-	posts := m.postsByChannel[channelID]
-	for i := range posts {
-		posts[i].Unread = false
-		posts[i].Mentioned = false
-		posts[i].ThreadUnread = false
-	}
-	m.postsByChannel[channelID] = posts
+	m.applyChannelRead(channelID)
 }
 
 func (m *Model) clearThreadReadSignal(channelID, rootID string) {
-	if channelID == "" || rootID == "" {
-		return
-	}
-	unreadCleared := 0
-	mentionsCleared := 0
-	threadSignalCleared := false
-	countFromCurrentPosts := true
-	if m.postsByChannel != nil {
-		if posts, ok := m.postsByChannel[channelID]; ok {
-			countFromCurrentPosts = false
-			for i := range posts {
-				if postThreadRootID(posts[i]) != rootID {
-					continue
-				}
-				if posts[i].Unread {
-					unreadCleared++
-				}
-				if posts[i].Mentioned {
-					mentionsCleared++
-				}
-				if posts[i].ThreadUnread {
-					threadSignalCleared = true
-				}
-				posts[i].Unread = false
-				posts[i].Mentioned = false
-				posts[i].ThreadUnread = false
-			}
-			m.postsByChannel[channelID] = posts
-		}
-	}
-	for i := range m.posts {
-		if m.posts[i].ChannelID != channelID || postThreadRootID(m.posts[i]) != rootID {
-			continue
-		}
-		if countFromCurrentPosts {
-			if m.posts[i].Unread {
-				unreadCleared++
-			}
-			if m.posts[i].Mentioned {
-				mentionsCleared++
-			}
-			if m.posts[i].ThreadUnread {
-				threadSignalCleared = true
-			}
-		}
-		m.posts[i].Unread = false
-		m.posts[i].Mentioned = false
-		m.posts[i].ThreadUnread = false
-	}
-	if unreadCleared == 0 && threadSignalCleared {
-		unreadCleared = 1
-	}
-	for i := range m.channels {
-		if m.channels[i].ID != channelID {
-			continue
-		}
-		m.channels[i].Unread = max(0, m.channels[i].Unread-unreadCleared)
-		m.channels[i].Mentions = max(0, m.channels[i].Mentions-mentionsCleared)
-		return
-	}
+	m.applyThreadRead(channelID, rootID)
 }
 
 func postThreadRootID(post domain.Post) string {
