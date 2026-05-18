@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strings"
 
+	"band-tui/internal/domain"
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -147,6 +148,32 @@ func (m Model) copySelectedPostText() (tea.Model, tea.Cmd) {
 	return m, func() tea.Msg {
 		return actionDoneMsg{err: clipboard.WriteAll(text), status: "message copied"}
 	}
+}
+
+func formatQuotedReply(post domain.Post) string {
+	message := strings.TrimSpace(post.Message)
+	if message == "" {
+		return ""
+	}
+	author := strings.TrimSpace(post.Username)
+	if author == "" && post.UserID != "" {
+		author = shortID(post.UserID)
+	}
+	if author == "" {
+		author = "unknown"
+	}
+	lines := strings.Split(message, "\n")
+	var b strings.Builder
+	b.WriteString("> ")
+	b.WriteString(author)
+	b.WriteString(":\n")
+	for _, line := range lines {
+		b.WriteString("> ")
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	return b.String()
 }
 
 func firstURL(s string) string {
