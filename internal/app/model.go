@@ -298,12 +298,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case replySentMsg:
-		if msg.rootID != m.threadRootID {
-			return m, nil
-		}
 		if msg.err != nil {
 			m.err = msg.err.Error()
-			m.status = "reply failed"
+			m.restorePendingSend(msg.draftKey, msg.text)
+			m.status = "reply failed · draft restored"
+			return m, nil
+		}
+		m.completePendingSend(msg.draftKey)
+		if msg.rootID != m.threadRootID {
 			return m, nil
 		}
 		m.err = ""
@@ -936,9 +938,10 @@ func (m Model) handleThreadKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if text == "" || m.threadRootID == "" || m.currentChannelID() == "" {
 			return m, nil
 		}
-		m.composer.Reset()
+		key := m.currentDraftKey()
+		m.beginPendingSend(key, text)
 		m.status = "sending reply…"
-		return m, sendReplyCmd(m.ctx, m.backend, m.currentChannelID(), m.threadRootID, text)
+		return m, sendReplyCmd(m.ctx, m.backend, m.currentChannelID(), m.threadRootID, key, text)
 	case "ctrl+j":
 		m.composer.InsertString("\n")
 		return m, nil

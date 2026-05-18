@@ -51,9 +51,12 @@ type threadLoadedMsg struct {
 }
 
 type replySentMsg struct {
-	rootID string
-	post   domain.Post
-	err    error
+	channelID string
+	rootID    string
+	draftKey  string
+	text      string
+	post      domain.Post
+	err       error
 }
 
 type backendEventMsg struct {
@@ -170,10 +173,10 @@ func sendPostCmd(ctx context.Context, backend domain.Backend, channelID, draftKe
 	}
 }
 
-func sendReplyCmd(ctx context.Context, backend domain.Backend, channelID, rootID, text string) tea.Cmd {
+func sendReplyCmd(ctx context.Context, backend domain.Backend, channelID, rootID, draftKey, text string) tea.Cmd {
 	return func() tea.Msg {
 		post, err := backend.SendReply(ctx, channelID, rootID, text)
-		return replySentMsg{rootID: rootID, post: post, err: err}
+		return replySentMsg{channelID: channelID, rootID: rootID, draftKey: draftKey, text: text, post: post, err: err}
 	}
 }
 

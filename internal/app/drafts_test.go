@@ -205,3 +205,54 @@ func TestSuccessfulChannelSendClearsOnlySentDraft(t *testing.T) {
 		t.Fatalf("other draft lost: %#v", got.drafts)
 	}
 }
+
+func TestFailedThreadReplyRestoresDraft(t *testing.T) {
+	m := New(nil, testConfig(), false)
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.threadOpen = true
+	m.threadRootID = "root"
+	m.threadFocusComposer = true
+	key := threadDraftKey("dev", "root")
+	m.loadDraft(key)
+	m.composer.SetValue("reply text")
+
+	updated, _ := m.handleThreadKey(draftKey("enter"))
+	m = updated.(Model)
+	if got := m.composer.Value(); got != "" {
+		t.Fatalf("composer should clear while sending reply, got %q", got)
+	}
+
+	updated, _ = m.Update(replySentMsg{channelID: "dev", rootID: "root", draftKey: key, text: "reply text", err: assertErr{}})
+	got := updated.(Model)
+	if got.composer.Value() != "reply text" {
+		t.Fatalf("failed reply restored composer = %q", got.composer.Value())
+	}
+	if got.status != "reply failed · draft restored" {
+		t.Fatalf("status = %q", got.status)
+	}
+}
+
+func TestSuccessfulThreadReplyClearsOnlyThreadDraft(t *testing.T) {
+	threadKey := threadDraftKey("dev", "root")
+	channelKey := channelDraftKey("dev")
+	m := New(nil, testConfig(), false)
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.threadOpen = true
+	m.threadRootID = "root"
+	m.threadFocusComposer = true
+	m.loadDraft(threadKey)
+	m.drafts[threadKey] = "reply"
+	m.drafts[channelKey] = "channel"
+	m.pendingSends[threadKey] = "reply"
+
+	updated, _ := m.Update(replySentMsg{channelID: "dev", rootID: "root", draftKey: threadKey, text: "reply", post: domain.Post{ID: "r1", ChannelID: "dev", RootID: "root", Message: "reply"}})
+	got := updated.(Model)
+	if _, ok := got.drafts[threadKey]; ok {
+		t.Fatalf("sent thread draft should clear: %#v", got.drafts)
+	}
+	if got.drafts[channelKey] != "channel" {
+		t.Fatalf("channel draft lost: %#v", got.drafts)
+	}
+}
