@@ -479,7 +479,7 @@ func (m Model) renderThreadHeader(width int) string {
 	if m.threadLoading {
 		title = "Thread · loading…"
 	}
-	help := "tab reply · esc close · j/k scroll"
+	help := "tab reply · esc close · j/k select · R react"
 	if m.threadFocusComposer {
 		help = "tab messages · enter reply · ctrl+j newline"
 	}
@@ -606,6 +606,10 @@ func (m Model) renderThreadPosts(width int) string {
 		body := renderMarkdownMessage(post.Message, max(20, width-4))
 		for _, line := range strings.Split(body, "\n") {
 			b.WriteString(m.renderPostLine(baseStyle.Render(line), selected))
+			b.WriteString("\n")
+		}
+		if badges := renderReactionBadges(post); badges != "" {
+			b.WriteString(m.renderPostLine(badges, selected))
 			b.WriteString("\n")
 		}
 		repliesWritten++

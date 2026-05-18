@@ -325,3 +325,18 @@ func TestFailedThreadReactionLeavesStateUnchanged(t *testing.T) {
 		t.Fatal("picker should close on failure")
 	}
 }
+
+func TestRenderThreadPostShowsReactionBadges(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.threadOpen = true
+	m.threadRootID = "root"
+	m.threadPosts = []domain.Post{
+		{ID: "root", ChannelID: "c1", Message: "root"},
+		{ID: "r1", ChannelID: "c1", RootID: "root", Message: "reply", Reactions: []domain.PostReaction{{Name: "+1", Count: 2, Reacted: true}}},
+	}
+	m.threadSelected = 1
+	got := m.renderThreadPosts(80)
+	if !strings.Contains(got, "👍 2") {
+		t.Fatalf("thread render missing reaction badge: %q", got)
+	}
+}
