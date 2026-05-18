@@ -406,3 +406,53 @@ func TestSwitchTeamSavesDraftAndClearsActiveComposer(t *testing.T) {
 		t.Fatalf("composer should clear on team switch, got %q", got.composer.Value())
 	}
 }
+
+func TestTriageThreadOpenSwitchesFromChannelDraftToThreadDraft(t *testing.T) {
+	channelKey := channelDraftKey("dev")
+	threadKey := threadDraftKey("dev", "root")
+	m := New(nil, testConfig(), false)
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.triageOpen = true
+	m.triageItems = []triageItem{{Kind: triageThreadReply, ChannelID: "dev", RootID: "root", PostID: "reply"}}
+	m.drafts[threadKey] = "saved reply draft"
+	m.loadDraft(channelKey)
+	m.composer.SetValue("channel draft before triage")
+
+	updated, _ := m.handleTriageKey(draftKey("enter"))
+	got := updated.(Model)
+	if got.drafts[channelKey] != "channel draft before triage" {
+		t.Fatalf("triage thread open did not save channel draft: %#v", got.drafts)
+	}
+	if got.activeDraftKey != threadKey {
+		t.Fatalf("active draft key = %q, want %q", got.activeDraftKey, threadKey)
+	}
+	if got.composer.Value() != "saved reply draft" {
+		t.Fatalf("thread draft not restored after triage open: %q", got.composer.Value())
+	}
+}
+
+func TestTriageUnreadChannelOpenSwitchesChannelDrafts(t *testing.T) {
+	devKey := channelDraftKey("dev")
+	alertsKey := channelDraftKey("alerts")
+	m := New(nil, testConfig(), false)
+	m.channels = []domain.Channel{
+		{ID: "dev", Type: "O", DisplayName: "dev"},
+		{ID: "alerts", Type: "O", DisplayName: "alerts", Unread: 1},
+	}
+	m.selectedChannel = 0
+	m.triageOpen = true
+	m.triageItems = []triageItem{{Kind: triageUnreadChannel, ChannelID: "alerts", Title: "#alerts", UnreadCount: 1}}
+	m.drafts[alertsKey] = "alerts draft"
+	m.loadDraft(devKey)
+	m.composer.SetValue("dev draft before triage")
+
+	updated, _ := m.handleTriageKey(draftKey("enter"))
+	got := updated.(Model)
+	if got.drafts[devKey] != "dev draft before triage" {
+		t.Fatalf("triage channel open did not save old channel draft: %#v", got.drafts)
+	}
+	if got.activeDraftKey != alertsKey || got.composer.Value() != "alerts draft" {
+		t.Fatalf("triage channel open did not load target draft: key=%q composer=%q", got.activeDraftKey, got.composer.Value())
+	}
+}
