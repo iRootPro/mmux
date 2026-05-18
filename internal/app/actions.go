@@ -59,18 +59,13 @@ func (m Model) selectRelativeImportantPost(delta int) (tea.Model, tea.Cmd) {
 			start = len(m.posts) - 1
 		}
 	}
-	for step := 1; step <= len(m.posts); step++ {
-		idx := start + step*delta
-		if idx < 0 || idx >= len(m.posts) {
-			break
-		}
-		if isImportantPost(m.posts[idx]) {
-			m.status = "jumped to unread"
-			return m.selectPost(idx)
-		}
+	idx := relativeImportantPost(m.posts, start, delta)
+	if idx < 0 {
+		m.status = "no more unread messages"
+		return m, nil
 	}
-	m.status = "no more unread messages"
-	return m, nil
+	m.status = "jumped to unread"
+	return m.selectPost(idx)
 }
 
 func (m Model) selectPost(index int) (tea.Model, tea.Cmd) {

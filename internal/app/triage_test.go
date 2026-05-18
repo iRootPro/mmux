@@ -691,3 +691,35 @@ func TestBuildTriageItemsDoesNotAddUnreadChannelForMultipleUnreadRepliesInSameTh
 		t.Fatalf("multiple unread replies in one thread should be one thread item, got %#v", items)
 	}
 }
+func TestBuildTriageItemsAndImportantSelectionAgreeOnHighestPriorityWork(t *testing.T) {
+	m := Model{
+		selectedPost: 0,
+		posts: []domain.Post{
+			{ID: "a"},
+			{ID: "b", ThreadUnread: true},
+			{ID: "c", Unread: true},
+			{ID: "d", Mentioned: true},
+		},
+		channels: []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev", Unread: 2, Mentions: 1}},
+		postsByChannel: map[string][]domain.Post{
+			"dev": {
+				{ID: "b", ChannelID: "dev", ThreadUnread: true},
+				{ID: "c", ChannelID: "dev", Unread: true},
+				{ID: "d", ChannelID: "dev", Mentioned: true},
+			},
+		},
+	}
+
+	items := buildTriageItems(m)
+	if len(items) == 0 || items[0].Kind != triageMention {
+		t.Fatalf("triage priority wrong: %#v", items)
+	}
+	if got := m.initialSelectedPost("dev"); got != 3 {
+		t.Fatalf("initialSelectedPost priority wrong: %d", got)
+	}
+	updated, _ := m.selectRelativeImportantPost(1)
+	got := updated.(Model)
+	if got.selectedPost != 3 {
+		t.Fatalf("selectRelativeImportantPost priority wrong: %d", got.selectedPost)
+	}
+}

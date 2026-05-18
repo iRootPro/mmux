@@ -427,6 +427,62 @@ func triageKindPriority(kind triageKind) int {
 	}
 }
 
+type importantPostPriority int
+
+const (
+	importantPostPriorityNone importantPostPriority = iota
+	importantPostPriorityThread
+	importantPostPriorityUnread
+	importantPostPriorityMention
+)
+
+func postImportance(post domain.Post) importantPostPriority {
+	switch {
+	case mentionPost(post):
+		return importantPostPriorityMention
+	case unreadPost(post):
+		return importantPostPriorityUnread
+	case post.ThreadUnread:
+		return importantPostPriorityThread
+	default:
+		return importantPostPriorityNone
+	}
+}
+
+func firstImportantPost(posts []domain.Post) int {
+	bestIdx := -1
+	bestPriority := importantPostPriorityNone
+	for i := range posts {
+		priority := postImportance(posts[i])
+		if priority <= bestPriority {
+			continue
+		}
+		bestPriority = priority
+		bestIdx = i
+		if priority == importantPostPriorityMention {
+			break
+		}
+	}
+	return bestIdx
+}
+
+func relativeImportantPost(posts []domain.Post, start, delta int) int {
+	bestIdx := -1
+	bestPriority := importantPostPriorityNone
+	for idx := start + delta; idx >= 0 && idx < len(posts); idx += delta {
+		priority := postImportance(posts[idx])
+		if priority <= bestPriority {
+			continue
+		}
+		bestPriority = priority
+		bestIdx = idx
+		if priority == importantPostPriorityMention {
+			break
+		}
+	}
+	return bestIdx
+}
+
 func triageChannelByID(m Model, channelID string) (domain.Channel, bool) {
 	idx := m.channelIndexByID(channelID)
 	if idx < 0 {
@@ -516,10 +572,10 @@ func triageThreadUnreadCoverageForChannel(m Model, threads []triageItem, channel
 		if !ok {
 			continue
 		}
-		if post.Unread || post.Mentioned {
+		switch postImportance(post) {
+		case importantPostPriorityMention, importantPostPriorityUnread:
 			cov.unread++
-		}
-		if post.ThreadUnread {
+		case importantPostPriorityThread:
 			cov.threadSignal = true
 		}
 		roots[rootID] = cov
@@ -582,13 +638,16 @@ func triageThreadRootID(post domain.Post) string {
 
 func triageLatestUnreadPost(posts []domain.Post) (domain.Post, bool) {
 	var latest domain.Post
+	bestPriority := importantPostPriorityNone
 	found := false
 	for _, post := range posts {
-		if !post.Unread && !post.Mentioned {
+		priority := postImportance(post)
+		if priority < importantPostPriorityUnread {
 			continue
 		}
-		if !found || post.CreateAt > latest.CreateAt || (post.CreateAt == latest.CreateAt && post.ID < latest.ID) {
+		if !found || priority > bestPriority || (priority == bestPriority && (post.CreateAt > latest.CreateAt || (post.CreateAt == latest.CreateAt && post.ID < latest.ID))) {
 			latest = post
+			bestPriority = priority
 			found = true
 		}
 	}

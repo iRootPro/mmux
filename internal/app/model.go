@@ -1659,20 +1659,8 @@ func (m Model) initialSelectedPost(channelID string) int {
 			}
 		}
 	}
-	for i, post := range m.posts {
-		if post.Mentioned {
-			return i
-		}
-	}
-	for i, post := range m.posts {
-		if post.Unread {
-			return i
-		}
-	}
-	for i, post := range m.posts {
-		if post.ThreadUnread {
-			return i
-		}
+	if idx := firstImportantPost(m.posts); idx >= 0 {
+		return idx
 	}
 	return len(m.posts) - 1
 }
