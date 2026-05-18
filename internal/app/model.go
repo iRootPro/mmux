@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -175,6 +176,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.err = msg.err.Error()
 			m.status = "connection failed"
+			m.setConnectionState(connectionStateFromError(msg.err), 0, 0, connectionMessageFromError(msg.err), msg.err)
 			return m, nil
 		}
 		m.session = msg.session
@@ -477,6 +479,22 @@ func (m *Model) setConnectionState(state domain.ConnectionState, attempt int, re
 	}
 }
 
+func connectionStateFromError(err error) domain.ConnectionState {
+	var backendErr *domain.BackendError
+	if errors.As(err, &backendErr) && backendErr.Kind == domain.BackendErrorAuth && !backendErr.Retryable {
+		return domain.ConnectionAuthExpired
+	}
+	return domain.ConnectionOffline
+}
+
+func connectionMessageFromError(err error) string {
+	var backendErr *domain.BackendError
+	if errors.As(err, &backendErr) && backendErr.Kind == domain.BackendErrorAuth && !backendErr.Retryable {
+		return "refresh token and restart"
+	}
+	return ""
+}
+
 func (m Model) connectionStatusText() string {
 	if m.connectionState == "" {
 		return ""
@@ -617,6 +635,21 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.prevFocus()
 		return m, nil
 	case "ctrl+r":
+		if m.connectionState == domain.ConnectionAuthExpired {
+			m.status = "auth expired"
+			m.setConnectionState(domain.ConnectionAuthExpired, 0, 0, "refresh token and restart", nil)
+			return m, nil
+		}
+		if m.connectionState != domain.ConnectionConnected {
+			m.loading = true
+			m.setConnectionState(domain.ConnectionConnecting, 0, 0, "", nil)
+			if m.session == nil {
+				m.status = "connecting…"
+				return m, connectCmd(m.ctx, m.backend)
+			}
+			m.status = "reloading scope…"
+			return m, m.loadCurrentScopeCmd()
+		}
 		if m.currentChannelID() == "" {
 			return m, nil
 		}
