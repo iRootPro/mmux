@@ -145,3 +145,12 @@ func clearImportantFlags(post *domain.Post) {
 	post.Unread = false
 	post.ThreadUnread = false
 }
+
+func threadChannelID(posts []domain.Post) string {
+	for _, post := range posts {
+		if post.ChannelID != "" {
+			return post.ChannelID
+		}
+	}
+	return ""
+}

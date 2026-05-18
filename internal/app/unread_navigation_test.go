@@ -73,3 +73,13 @@ func TestSelectRelativeImportantPostUsesSamePriorityAsInitialSelection(t *testin
 		t.Fatalf("unread navigation selected = %d, want same priority target as initialSelectedPost (%d)", got.selectedPost, initial)
 	}
 }
+
+func TestInitialSelectionPrefersThreadUnreadOverPlainUnread(t *testing.T) {
+	m := Model{posts: []domain.Post{
+		{ID: "thread-root", ThreadUnread: true},
+		{ID: "plain-unread", Unread: true},
+	}}
+	if got := m.initialSelectedPost("c1"); got != 0 {
+		t.Fatalf("initial selected = %d, want thread-unread index 0", got)
+	}
+}

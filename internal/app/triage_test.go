@@ -723,3 +723,23 @@ func TestBuildTriageItemsAndImportantSelectionAgreeOnHighestPriorityWork(t *test
 		t.Fatalf("selectRelativeImportantPost priority wrong: %d", got.selectedPost)
 	}
 }
+
+func TestBuildTriageItemsKeepsUnreadChannelWhenMentionDoesNotCoverAllUnreadWork(t *testing.T) {
+	m := Model{
+		channels: []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev", Mentions: 1, Unread: 3}},
+		recentEvents: []domain.Post{
+			{ID: "mention-post", ChannelID: "dev", Username: "Artyom", Message: "need help", Mentioned: true, CreateAt: 300},
+		},
+		postsByChannel: map[string][]domain.Post{
+			"dev": {
+				{ID: "old-unread", ChannelID: "dev", Username: "bot", Message: "older unread", Unread: true, CreateAt: 100},
+				{ID: "mention-post", ChannelID: "dev", Username: "Artyom", Message: "need help", Unread: true, Mentioned: true, CreateAt: 300},
+			},
+		},
+	}
+
+	items := buildTriageItems(m)
+	if len(items) != 2 || items[0].Kind != triageMention || items[1].Kind != triageUnreadChannel {
+		t.Fatalf("expected mention plus remaining unread work, got %#v", items)
+	}
+}

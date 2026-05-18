@@ -34,15 +34,11 @@ type triageItem struct {
 
 func buildTriageItems(m Model) []triageItem {
 	mentions := buildMentionTriageItems(m)
-	blocked := make(map[string]struct{}, len(mentions))
-	for _, item := range mentions {
-		blocked[item.ChannelID] = struct{}{}
-	}
 	threads := filterThreadTriageItems(buildThreadReplyTriageItems(m), mentions)
 	items := make([]triageItem, 0, len(mentions)+len(threads)+len(m.channels))
 	items = append(items, mentions...)
 	items = append(items, threads...)
-	items = append(items, buildUnreadChannelTriageItems(m, blocked, threads)...)
+	items = append(items, buildUnreadChannelTriageItems(m, mentions, threads)...)
 	sort.SliceStable(items, func(i, j int) bool {
 		return triageSortLess(items[i], items[j])
 	})
@@ -130,6 +126,48 @@ func triageUnreadExistsForChannel(items []triageItem, channelID string) bool {
 		if item.ChannelID == channelID && item.Kind == triageUnreadChannel {
 			return true
 		}
+	}
+	return false
+}
+
+func triageMentionCoverageForChannel(mentions []triageItem, channelID string) int {
+	for _, item := range mentions {
+		if item.ChannelID != channelID {
+			continue
+		}
+		if item.MentionCount > 0 {
+			return item.MentionCount
+		}
+		return 1
+	}
+	return 0
+}
+
+func triagePostCoveredByMention(post domain.Post, mentions []triageItem) bool {
+	rootID := triageThreadRootID(post)
+	for _, mention := range mentions {
+		if mention.ChannelID != post.ChannelID {
+			continue
+		}
+		if mention.PostID != "" && mention.PostID == post.ID {
+			return true
+		}
+		if post.ID == rootID && mention.RootID != "" && mention.RootID == rootID {
+			return true
+		}
+	}
+	return false
+}
+
+func triageHasExplicitUncoveredUnreadWork(posts []domain.Post, mentions []triageItem, threads []triageItem) bool {
+	for _, post := range posts {
+		if !post.Unread && !post.Mentioned {
+			continue
+		}
+		if triagePostCoveredByMention(post, mentions) || triagePostCoveredByThread(post, threads) {
+			continue
+		}
+		return true
 	}
 	return false
 }
@@ -327,13 +365,10 @@ func triageThreadSignalPost(posts []domain.Post, post domain.Post) domain.Post {
 	return latest
 }
 
-func buildUnreadChannelTriageItems(m Model, blocked map[string]struct{}, threads []triageItem) []triageItem {
+func buildUnreadChannelTriageItems(m Model, mentions []triageItem, threads []triageItem) []triageItem {
 	items := make([]triageItem, 0, len(m.channels))
 	for _, ch := range m.channels {
 		if ch.Unread <= 0 {
-			continue
-		}
-		if _, ok := blocked[ch.ID]; ok {
 			continue
 		}
 		item := triageItem{
@@ -344,9 +379,11 @@ func buildUnreadChannelTriageItems(m Model, blocked map[string]struct{}, threads
 			Score:       triageKindPriority(triageUnreadChannel),
 			UnreadCount: ch.Unread,
 		}
+		covered := triageMentionCoverageForChannel(mentions, ch.ID) + triageThreadUnreadCoverageForChannel(m, threads, ch.ID)
+		hasExplicitUncovered := triageHasExplicitUncoveredUnreadWork(m.postsByChannel[ch.ID], mentions, threads)
 		if post, ok := triageLatestUnreadPost(m.postsByChannel[ch.ID]); ok {
-			if triagePostCoveredByThread(post, threads) {
-				if ch.Unread <= triageThreadUnreadCoverageForChannel(m, threads, ch.ID) {
+			if triagePostCoveredByMention(post, mentions) || triagePostCoveredByThread(post, threads) {
+				if ch.Unread <= covered || !hasExplicitUncovered {
 					continue
 				}
 			} else {
@@ -356,7 +393,7 @@ func buildUnreadChannelTriageItems(m Model, blocked map[string]struct{}, threads
 				item.Preview = triagePreview(post.Message)
 				item.CreateAt = post.CreateAt
 			}
-		} else if triageThreadExistsForChannel(threads, ch.ID) && ch.Unread <= triageThreadUnreadCoverageForChannel(m, threads, ch.ID) {
+		} else if triageMentionCoverageForChannel(mentions, ch.ID) > 0 || covered >= ch.Unread {
 			continue
 		}
 		items = append(items, item)
@@ -431,8 +468,8 @@ type importantPostPriority int
 
 const (
 	importantPostPriorityNone importantPostPriority = iota
-	importantPostPriorityThread
 	importantPostPriorityUnread
+	importantPostPriorityThread
 	importantPostPriorityMention
 )
 
@@ -440,10 +477,10 @@ func postImportance(post domain.Post) importantPostPriority {
 	switch {
 	case mentionPost(post):
 		return importantPostPriorityMention
-	case unreadPost(post):
-		return importantPostPriorityUnread
 	case post.ThreadUnread:
 		return importantPostPriorityThread
+	case unreadPost(post):
+		return importantPostPriorityUnread
 	default:
 		return importantPostPriorityNone
 	}
@@ -572,10 +609,10 @@ func triageThreadUnreadCoverageForChannel(m Model, threads []triageItem, channel
 		if !ok {
 			continue
 		}
-		switch postImportance(post) {
-		case importantPostPriorityMention, importantPostPriorityUnread:
+		if post.Mentioned || post.Unread {
 			cov.unread++
-		case importantPostPriorityThread:
+		}
+		if post.ThreadUnread {
 			cov.threadSignal = true
 		}
 		roots[rootID] = cov

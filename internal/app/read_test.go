@@ -320,3 +320,29 @@ func (b *viewRecordingBackend) SendReply(context.Context, string, string, string
 }
 func (b *viewRecordingBackend) WatchPosts(context.Context, chan<- domain.Event) error { return nil }
 func (b *viewRecordingBackend) Close() error                                          { return nil }
+
+func TestThreadLoadedClearsConsumedThreadImportance(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev", Unread: 2, Mentions: 1}}
+	m.selectedChannel = 0
+	m.threadOpen = true
+	m.threadRootID = "root"
+	m.postsByChannel = map[string][]domain.Post{
+		"dev": {
+			{ID: "root", ChannelID: "dev", ThreadUnread: true, ReplyCount: 1},
+			{ID: "reply", ChannelID: "dev", RootID: "root", Unread: true, Mentioned: true},
+			{ID: "other", ChannelID: "dev", Unread: true},
+		},
+	}
+
+	updated, _ := m.Update(threadLoadedMsg{rootID: "root", posts: []domain.Post{
+		{ID: "root", ChannelID: "dev", ThreadUnread: true, ReplyCount: 1},
+		{ID: "reply", ChannelID: "dev", RootID: "root", Unread: true, Mentioned: true},
+	}})
+	got := updated.(Model)
+	for _, post := range got.threadPosts {
+		if post.Unread || post.Mentioned || post.ThreadUnread {
+			t.Fatalf("loaded thread should clear consumed importance flags: %#v", got.threadPosts)
+		}
+	}
+}

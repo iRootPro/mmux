@@ -305,6 +305,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = ""
 		m.threadPosts = msg.posts
+		if channelID := threadChannelID(msg.posts); channelID != "" {
+			m.applyThreadRead(channelID, msg.rootID)
+		}
 		m.rebuildTriageItems()
 		m.refreshThreadViewport()
 		m.threadViewport.GotoBottom()

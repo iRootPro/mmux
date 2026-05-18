@@ -42,7 +42,7 @@ func TestActivityItemsIncludeMentionChannelsWithoutLiveEvents(t *testing.T) {
 
 func TestInitialSelectedPostPrefersUnreadOrPendingJump(t *testing.T) {
 	m := Model{posts: []domain.Post{{ID: "p1"}, {ID: "p2", ThreadUnread: true}, {ID: "p3", Unread: true}}}
-	if got := m.initialSelectedPost("c1"); got != 2 {
+	if got := m.initialSelectedPost("c1"); got != 1 {
 		t.Fatalf("selected unread = %d", got)
 	}
 	m.pendingJumpChannelID = "c1"
