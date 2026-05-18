@@ -222,6 +222,24 @@ func (m Model) copySelectedPostPermalink() (tea.Model, tea.Cmd) {
 	}
 }
 
+func (m Model) editSelectedPost() (tea.Model, tea.Cmd) {
+	idx, ok := m.selectedPostIndex()
+	if !ok {
+		return m, nil
+	}
+	post := m.posts[idx]
+	if !m.isOwnPost(post) {
+		m.status = "can only edit your own messages"
+		return m, nil
+	}
+	m.composer.SetValue(post.Message)
+	m.editingPostID = post.ID
+	m.focus = focusComposer
+	m.applyFocus()
+	m.status = "editing message"
+	return m, nil
+}
+
 func formatQuotedReply(post domain.Post) string {
 	message := strings.TrimSpace(post.Message)
 	if message == "" {

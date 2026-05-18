@@ -80,6 +80,7 @@ type Model struct {
 	connectionAttempt    int
 	connectionRetryIn    time.Duration
 	connectionMessage    string
+	editingPostID        string
 	infoOpen             bool
 	teamSwitcherOpen     bool
 	teamSwitcherSelected int
@@ -732,6 +733,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.quoteSelectedPost()
 		case "p":
 			return m.copySelectedPostPermalink()
+		case "e":
+			return m.editSelectedPost()
 		}
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)

@@ -24,6 +24,10 @@ func (noopBackend) SendPost(context.Context, string, string) (domain.Post, error
 func (noopBackend) SendReply(context.Context, string, string, string) (domain.Post, error) {
 	return domain.Post{}, nil
 }
+func (noopBackend) UpdatePost(context.Context, string, string) (domain.Post, error) {
+	return domain.Post{}, nil
+}
+func (noopBackend) DeletePost(context.Context, string) error              { return nil }
 func (noopBackend) WatchPosts(context.Context, chan<- domain.Event) error { return nil }
 func (noopBackend) Close() error                                          { return nil }
 

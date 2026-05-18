@@ -144,3 +144,54 @@ func TestHelpTextMentionsQuoteAndPermalinkKeys(t *testing.T) {
 		t.Fatalf("help text missing message action keys: %q", got)
 	}
 }
+
+func TestEditSelectedOwnPostLoadsComposer(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.focus = focusTimeline
+	m.session = &domain.Session{User: domain.User{ID: "me"}}
+	m.posts = []domain.Post{{ID: "p1", UserID: "me", Username: "Alice", Message: "Hello"}}
+	m.selectedPost = 0
+
+	updated, _ := m.editSelectedPost()
+	got := updated.(Model)
+	if got.focus != focusComposer {
+		t.Fatalf("focus = %v, want composer", got.focus)
+	}
+	if got.editingPostID != "p1" {
+		t.Fatalf("editingPostID = %q", got.editingPostID)
+	}
+	if got.composer.Value() != "Hello" {
+		t.Fatalf("composer = %q", got.composer.Value())
+	}
+}
+
+func TestCannotEditOtherUsersPost(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.focus = focusTimeline
+	m.session = &domain.Session{User: domain.User{ID: "me"}}
+	m.posts = []domain.Post{{ID: "p1", UserID: "other", Username: "Alice", Message: "Hello"}}
+	m.selectedPost = 0
+
+	updated, _ := m.editSelectedPost()
+	got := updated.(Model)
+	if got.editingPostID != "" {
+		t.Fatalf("unexpected edit mode: %q", got.editingPostID)
+	}
+	if got.status != "can only edit your own messages" {
+		t.Fatalf("status = %q", got.status)
+	}
+}
+
+func TestHandleTimelineKeyEEntersEditMode(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.focus = focusTimeline
+	m.session = &domain.Session{User: domain.User{ID: "me"}}
+	m.posts = []domain.Post{{ID: "p1", UserID: "me", Username: "Alice", Message: "Hello"}}
+	m.selectedPost = 0
+
+	updated, _ := m.handleKey(actionKey("e"))
+	got := updated.(Model)
+	if got.editingPostID != "p1" || got.focus != focusComposer {
+		t.Fatalf("edit mode not entered: editing=%q focus=%v", got.editingPostID, got.focus)
+	}
+}
