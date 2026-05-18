@@ -73,7 +73,8 @@ type Model struct {
 	dismissedTriage      map[string]struct{}
 	drafts               map[string]string
 	activeDraftKey       string
-	pendingSends         map[string]string
+	pendingSends         map[string]pendingSend
+	nextPendingSendID    int64
 	infoOpen             bool
 	teamSwitcherOpen     bool
 	teamSwitcherSelected int
@@ -140,7 +141,7 @@ func New(backend domain.Backend, cfg config.Config, mockFallback bool) Model {
 		collapsedSections: map[string]bool{},
 		dismissedTriage:   map[string]struct{}{},
 		drafts:            map[string]string{},
-		pendingSends:      map[string]string{},
+		pendingSends:      map[string]pendingSend{},
 		status:            "connecting…",
 		loading:           true,
 		hasOlder:          true,
@@ -300,11 +301,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case replySentMsg:
 		if msg.err != nil {
 			m.err = msg.err.Error()
-			m.restorePendingSend(msg.draftKey, msg.text)
+			m.restorePendingSend(msg.pendingID, msg.draftKey, msg.text)
 			m.status = "reply failed · draft restored"
 			return m, nil
 		}
-		m.completePendingSend(msg.draftKey)
+		m.completePendingSend(msg.pendingID, msg.draftKey)
 		if msg.rootID != m.threadRootID {
 			return m, nil
 		}
@@ -322,11 +323,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		if msg.err != nil {
 			m.err = msg.err.Error()
-			m.restorePendingSend(msg.draftKey, msg.text)
+			m.restorePendingSend(msg.pendingID, msg.draftKey, msg.text)
 			m.status = "send failed · draft restored"
 			return m, nil
 		}
-		m.completePendingSend(msg.draftKey)
+		m.completePendingSend(msg.pendingID, msg.draftKey)
 		if msg.channelID != m.currentChannelID() {
 			return m, nil
 		}
@@ -665,10 +666,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			key := m.currentDraftKey()
-			m.beginPendingSend(key, text)
+			pendingID := m.beginPendingSend(key, text)
 			m.status = "sending…"
 			m.loading = true
-			return m, sendPostCmd(m.ctx, m.backend, m.currentChannelID(), key, text)
+			return m, sendPostCmd(m.ctx, m.backend, m.currentChannelID(), key, pendingID, text)
 		case "ctrl+j":
 			m.composer.InsertString("\n")
 			return m, nil
@@ -944,9 +945,9 @@ func (m Model) handleThreadKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		key := m.currentDraftKey()
-		m.beginPendingSend(key, text)
+		pendingID := m.beginPendingSend(key, text)
 		m.status = "sending reply…"
-		return m, sendReplyCmd(m.ctx, m.backend, m.currentChannelID(), m.threadRootID, key, text)
+		return m, sendReplyCmd(m.ctx, m.backend, m.currentChannelID(), m.threadRootID, key, pendingID, text)
 	case "ctrl+j":
 		m.composer.InsertString("\n")
 		return m, nil

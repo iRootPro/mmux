@@ -142,6 +142,9 @@ func (m Model) openTriageItem(item triageItem) (tea.Model, tea.Cmd) {
 	if idx := m.channelIndexByID(item.ChannelID); idx >= 0 {
 		m.selectedChannel = idx
 	}
+	m.threadOpen = false
+	m.threadRootID = ""
+	m.threadPosts = nil
 
 	switch item.Kind {
 	case triageMention:

@@ -24,6 +24,13 @@ func draftKey(s string) tea.KeyMsg {
 type assertErr struct{}
 
 func (assertErr) Error() string { return "boom" }
+
+func pendingID(p map[string]pendingSend) string {
+	for id := range p {
+		return id
+	}
+	return ""
+}
 func TestDraftKeysAreStable(t *testing.T) {
 	if got := channelDraftKey("dev"); got != "channel:dev" {
 		t.Fatalf("channel key = %q", got)
@@ -192,11 +199,18 @@ func TestSuccessfulChannelSendClearsOnlySentDraft(t *testing.T) {
 	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
 	m.selectedChannel = 0
 	m.loadDraft(key)
-	m.drafts[key] = "hello"
+	m.composer.SetValue("hello")
 	m.drafts[other] = "keep me"
-	m.pendingSends[key] = "hello"
-
-	updated, _ := m.Update(postSentMsg{channelID: "dev", draftKey: key, text: "hello", post: domain.Post{ID: "p1", ChannelID: "dev", Message: "hello"}})
+	updated, _ := m.handleKey(draftKey("enter"))
+	m = updated.(Model)
+	if len(m.pendingSends) != 1 {
+		t.Fatalf("expected one pending channel send, got %#v", m.pendingSends)
+	}
+	var pendingID string
+	for id := range m.pendingSends {
+		pendingID = id
+	}
+	updated, _ = m.Update(postSentMsg{channelID: "dev", draftKey: key, pendingID: pendingID, text: "hello", post: domain.Post{ID: "p1", ChannelID: "dev", Message: "hello"}})
 	got := updated.(Model)
 	if _, ok := got.drafts[key]; ok {
 		t.Fatalf("sent draft should clear: %#v", got.drafts)
@@ -223,7 +237,7 @@ func TestFailedThreadReplyRestoresDraft(t *testing.T) {
 		t.Fatalf("composer should clear while sending reply, got %q", got)
 	}
 
-	updated, _ = m.Update(replySentMsg{channelID: "dev", rootID: "root", draftKey: key, text: "reply text", err: assertErr{}})
+	updated, _ = m.Update(replySentMsg{channelID: "dev", rootID: "root", draftKey: key, pendingID: pendingID(m.pendingSends), text: "reply text", err: assertErr{}})
 	got := updated.(Model)
 	if got.composer.Value() != "reply text" {
 		t.Fatalf("failed reply restored composer = %q", got.composer.Value())
@@ -243,11 +257,18 @@ func TestSuccessfulThreadReplyClearsOnlyThreadDraft(t *testing.T) {
 	m.threadRootID = "root"
 	m.threadFocusComposer = true
 	m.loadDraft(threadKey)
-	m.drafts[threadKey] = "reply"
+	m.composer.SetValue("reply")
 	m.drafts[channelKey] = "channel"
-	m.pendingSends[threadKey] = "reply"
-
-	updated, _ := m.Update(replySentMsg{channelID: "dev", rootID: "root", draftKey: threadKey, text: "reply", post: domain.Post{ID: "r1", ChannelID: "dev", RootID: "root", Message: "reply"}})
+	updated, _ := m.handleThreadKey(draftKey("enter"))
+	m = updated.(Model)
+	if len(m.pendingSends) != 1 {
+		t.Fatalf("expected one pending thread send, got %#v", m.pendingSends)
+	}
+	var pendingID string
+	for id := range m.pendingSends {
+		pendingID = id
+	}
+	updated, _ = m.Update(replySentMsg{channelID: "dev", rootID: "root", draftKey: threadKey, pendingID: pendingID, text: "reply", post: domain.Post{ID: "r1", ChannelID: "dev", RootID: "root", Message: "reply"}})
 	got := updated.(Model)
 	if _, ok := got.drafts[threadKey]; ok {
 		t.Fatalf("sent thread draft should clear: %#v", got.drafts)
@@ -268,9 +289,9 @@ func TestFailedSendForInactiveChannelDoesNotOverwriteCurrentComposer(t *testing.
 	m.selectedChannel = 1
 	m.loadDraft(alertsKey)
 	m.composer.SetValue("current alerts text")
-	m.pendingSends[devKey] = "failed dev text"
+	m.pendingSends["1"] = pendingSend{draftKey: devKey, text: "failed dev text"}
 
-	updated, _ := m.Update(postSentMsg{channelID: "dev", draftKey: devKey, text: "failed dev text", err: assertErr{}})
+	updated, _ := m.Update(postSentMsg{channelID: "dev", draftKey: devKey, pendingID: "1", text: "failed dev text", err: assertErr{}})
 	got := updated.(Model)
 	if got.composer.Value() != "current alerts text" {
 		t.Fatalf("inactive failure overwrote current composer: %q", got.composer.Value())
@@ -289,9 +310,9 @@ func TestFailedReplyForInactiveThreadDoesNotOverwriteChannelComposer(t *testing.
 	m.threadOpen = false
 	m.loadDraft(channelKey)
 	m.composer.SetValue("channel text")
-	m.pendingSends[threadKey] = "failed reply"
+	m.pendingSends["1"] = pendingSend{draftKey: threadKey, text: "failed reply"}
 
-	updated, _ := m.Update(replySentMsg{channelID: "dev", rootID: "root", draftKey: threadKey, text: "failed reply", err: assertErr{}})
+	updated, _ := m.Update(replySentMsg{channelID: "dev", rootID: "root", draftKey: threadKey, pendingID: "1", text: "failed reply", err: assertErr{}})
 	got := updated.(Model)
 	if got.composer.Value() != "channel text" {
 		t.Fatalf("inactive reply failure overwrote composer: %q", got.composer.Value())
@@ -307,10 +328,10 @@ func TestSuccessfulSendDoesNotClearNewSameDestinationText(t *testing.T) {
 	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
 	m.selectedChannel = 0
 	m.loadDraft(key)
-	m.pendingSends[key] = "first"
+	m.pendingSends["1"] = pendingSend{draftKey: key, text: "first"}
 	m.composer.SetValue("second")
 
-	updated, _ := m.Update(postSentMsg{channelID: "dev", draftKey: key, text: "first", post: domain.Post{ID: "p1", ChannelID: "dev", Message: "first"}})
+	updated, _ := m.Update(postSentMsg{channelID: "dev", draftKey: key, pendingID: "1", text: "first", post: domain.Post{ID: "p1", ChannelID: "dev", Message: "first"}})
 	got := updated.(Model)
 	if got.composer.Value() != "second" {
 		t.Fatalf("new same-destination text was cleared: %q", got.composer.Value())
@@ -323,10 +344,10 @@ func TestFailedSendDoesNotOverwriteNewSameDestinationText(t *testing.T) {
 	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
 	m.selectedChannel = 0
 	m.loadDraft(key)
-	m.pendingSends[key] = "first"
+	m.pendingSends["1"] = pendingSend{draftKey: key, text: "first"}
 	m.composer.SetValue("second")
 
-	updated, _ := m.Update(postSentMsg{channelID: "dev", draftKey: key, text: "first", err: assertErr{}})
+	updated, _ := m.Update(postSentMsg{channelID: "dev", draftKey: key, pendingID: "1", text: "first", err: assertErr{}})
 	got := updated.(Model)
 	if got.composer.Value() != "second" {
 		t.Fatalf("failed old send overwrote new same-destination text: %q", got.composer.Value())
@@ -345,17 +366,17 @@ func TestSendResponseDoesNotReplaceSavedNewerInactiveDraft(t *testing.T) {
 	}
 	m.selectedChannel = 1
 	m.loadDraft(channelDraftKey("alerts"))
-	m.pendingSends[key] = "first"
+	m.pendingSends["1"] = pendingSend{draftKey: key, text: "first"}
 	m.drafts[key] = "second"
 
-	updated, _ := m.Update(postSentMsg{channelID: "dev", draftKey: key, text: "first", err: assertErr{}})
+	updated, _ := m.Update(postSentMsg{channelID: "dev", draftKey: key, pendingID: "1", text: "first", err: assertErr{}})
 	got := updated.(Model)
 	if got.drafts[key] != "second" {
 		t.Fatalf("inactive newer draft overwritten after failure: %#v", got.drafts)
 	}
 
-	got.pendingSends[key] = "first"
-	updated, _ = got.Update(postSentMsg{channelID: "dev", draftKey: key, text: "first", post: domain.Post{ID: "p1", ChannelID: "dev", Message: "first"}})
+	got.pendingSends["1"] = pendingSend{draftKey: key, text: "first"}
+	updated, _ = got.Update(postSentMsg{channelID: "dev", draftKey: key, pendingID: "1", text: "first", post: domain.Post{ID: "p1", ChannelID: "dev", Message: "first"}})
 	got = updated.(Model)
 	if got.drafts[key] != "second" {
 		t.Fatalf("inactive newer draft deleted after success: %#v", got.drafts)
@@ -454,5 +475,74 @@ func TestTriageUnreadChannelOpenSwitchesChannelDrafts(t *testing.T) {
 	}
 	if got.activeDraftKey != alertsKey || got.composer.Value() != "alerts draft" {
 		t.Fatalf("triage channel open did not load target draft: key=%q composer=%q", got.activeDraftKey, got.composer.Value())
+	}
+}
+
+func TestSuccessfulSendDoesNotClearNewIdenticalSameDestinationText(t *testing.T) {
+	key := channelDraftKey("dev")
+	m := New(nil, testConfig(), false)
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.loadDraft(key)
+	pendingID := m.beginPendingSend(key, "ok")
+	m.composer.SetValue("ok")
+
+	updated, _ := m.Update(postSentMsg{channelID: "dev", draftKey: key, pendingID: pendingID, text: "ok", post: domain.Post{ID: "p1", ChannelID: "dev", Message: "ok"}})
+	got := updated.(Model)
+	if got.composer.Value() != "ok" {
+		t.Fatalf("new identical same-destination text was cleared: %q", got.composer.Value())
+	}
+}
+
+func TestMultiplePendingSendsForSameDestinationRestoreIndependently(t *testing.T) {
+	key := channelDraftKey("dev")
+	m := New(nil, testConfig(), false)
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.loadDraft(key)
+	firstID := m.beginPendingSend(key, "first")
+	secondID := m.beginPendingSend(key, "second")
+
+	updated, _ := m.Update(postSentMsg{channelID: "dev", draftKey: key, pendingID: firstID, text: "first", post: domain.Post{ID: "p1", ChannelID: "dev", Message: "first"}})
+	m = updated.(Model)
+	if _, ok := m.pendingSends[secondID]; !ok {
+		t.Fatalf("first response cleared second pending send: %#v", m.pendingSends)
+	}
+
+	updated, _ = m.Update(postSentMsg{channelID: "dev", draftKey: key, pendingID: secondID, text: "second", err: assertErr{}})
+	got := updated.(Model)
+	if got.composer.Value() != "second" {
+		t.Fatalf("second failed send was not restored independently: %q", got.composer.Value())
+	}
+}
+
+func TestTriageChannelOpenFromThreadClosesThreadAndLoadsChannelDraft(t *testing.T) {
+	threadKey := threadDraftKey("dev", "root")
+	alertsKey := channelDraftKey("alerts")
+	m := New(nil, testConfig(), false)
+	m.channels = []domain.Channel{
+		{ID: "dev", Type: "O", DisplayName: "dev"},
+		{ID: "alerts", Type: "O", DisplayName: "alerts", Unread: 1},
+	}
+	m.selectedChannel = 0
+	m.threadOpen = true
+	m.threadRootID = "root"
+	m.threadFocusComposer = true
+	m.triageOpen = true
+	m.triageItems = []triageItem{{Kind: triageUnreadChannel, ChannelID: "alerts", Title: "#alerts", UnreadCount: 1}}
+	m.loadDraft(threadKey)
+	m.composer.SetValue("thread reply draft")
+	m.drafts[alertsKey] = "alerts channel draft"
+
+	updated, _ := m.handleTriageKey(draftKey("enter"))
+	got := updated.(Model)
+	if got.threadOpen || got.threadRootID != "" {
+		t.Fatalf("triage channel open should close stale thread, threadOpen=%v root=%q", got.threadOpen, got.threadRootID)
+	}
+	if got.drafts[threadKey] != "thread reply draft" {
+		t.Fatalf("thread draft not saved before triage channel open: %#v", got.drafts)
+	}
+	if got.activeDraftKey != alertsKey || got.composer.Value() != "alerts channel draft" {
+		t.Fatalf("target channel draft not loaded: key=%q composer=%q", got.activeDraftKey, got.composer.Value())
 	}
 }

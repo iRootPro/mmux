@@ -40,6 +40,7 @@ type postSentMsg struct {
 	channelID string
 	draftKey  string
 	text      string
+	pendingID string
 	post      domain.Post
 	err       error
 }
@@ -55,6 +56,7 @@ type replySentMsg struct {
 	rootID    string
 	draftKey  string
 	text      string
+	pendingID string
 	post      domain.Post
 	err       error
 }
@@ -166,17 +168,17 @@ func loadThreadCmd(ctx context.Context, backend domain.Backend, rootID string) t
 	}
 }
 
-func sendPostCmd(ctx context.Context, backend domain.Backend, channelID, draftKey, text string) tea.Cmd {
+func sendPostCmd(ctx context.Context, backend domain.Backend, channelID, draftKey, pendingID, text string) tea.Cmd {
 	return func() tea.Msg {
 		post, err := backend.SendPost(ctx, channelID, text)
-		return postSentMsg{channelID: channelID, draftKey: draftKey, text: text, post: post, err: err}
+		return postSentMsg{channelID: channelID, draftKey: draftKey, pendingID: pendingID, text: text, post: post, err: err}
 	}
 }
 
-func sendReplyCmd(ctx context.Context, backend domain.Backend, channelID, rootID, draftKey, text string) tea.Cmd {
+func sendReplyCmd(ctx context.Context, backend domain.Backend, channelID, rootID, draftKey, pendingID, text string) tea.Cmd {
 	return func() tea.Msg {
 		post, err := backend.SendReply(ctx, channelID, rootID, text)
-		return replySentMsg{channelID: channelID, rootID: rootID, draftKey: draftKey, text: text, post: post, err: err}
+		return replySentMsg{channelID: channelID, rootID: rootID, draftKey: draftKey, pendingID: pendingID, text: text, post: post, err: err}
 	}
 }
 

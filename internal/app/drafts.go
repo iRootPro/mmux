@@ -1,6 +1,14 @@
 package app
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
+
+type pendingSend struct {
+	draftKey string
+	text     string
+}
 
 func channelDraftKey(channelID string) string {
 	if channelID == "" {
@@ -28,7 +36,7 @@ func (m *Model) ensureDraftMaps() {
 		m.drafts = map[string]string{}
 	}
 	if m.pendingSends == nil {
-		m.pendingSends = map[string]string{}
+		m.pendingSends = map[string]pendingSend{}
 	}
 }
 
@@ -71,64 +79,70 @@ func (m *Model) clearDraft(key string) {
 	}
 	m.ensureDraftMaps()
 	delete(m.drafts, key)
-	delete(m.pendingSends, key)
+	for id, pending := range m.pendingSends {
+		if pending.draftKey == key {
+			delete(m.pendingSends, id)
+		}
+	}
 	if key == m.activeDraftKey && m.composerReady() {
 		m.composer.Reset()
 	}
 }
 
-func (m *Model) beginPendingSend(key, text string) {
+func (m *Model) beginPendingSend(key, text string) string {
 	if key == "" {
-		return
+		return ""
 	}
 	m.ensureDraftMaps()
-	m.pendingSends[key] = text
+	m.nextPendingSendID++
+	pendingID := strconv.FormatInt(m.nextPendingSendID, 10)
+	m.pendingSends[pendingID] = pendingSend{draftKey: key, text: text}
 	delete(m.drafts, key)
 	if key == m.activeDraftKey && m.composerReady() {
 		m.composer.Reset()
 	}
+	return pendingID
 }
 
-func (m *Model) completePendingSend(key string) {
-	if key == "" {
+func (m *Model) completePendingSend(pendingID, draftKey string) {
+	m.ensureDraftMaps()
+	if pending, ok := m.pendingSends[pendingID]; ok {
+		draftKey = pending.draftKey
+		delete(m.pendingSends, pendingID)
+	}
+	if draftKey == "" {
 		return
 	}
-	m.ensureDraftMaps()
-	pending := m.pendingSends[key]
-	delete(m.pendingSends, key)
-	if m.drafts[key] == pending || strings.TrimSpace(m.drafts[key]) == "" {
-		delete(m.drafts, key)
+	if strings.TrimSpace(m.drafts[draftKey]) == "" {
+		delete(m.drafts, draftKey)
 	}
-	if key == m.activeDraftKey && m.composerReady() {
-		value := m.composer.Value()
-		if strings.TrimSpace(value) == "" || value == pending {
-			m.composer.Reset()
+	if draftKey == m.activeDraftKey && m.composerReady() && strings.TrimSpace(m.composer.Value()) == "" {
+		m.composer.Reset()
+	}
+}
+
+func (m *Model) restorePendingSend(pendingID, draftKey, text string) {
+	m.ensureDraftMaps()
+	if pending, ok := m.pendingSends[pendingID]; ok {
+		if draftKey == "" {
+			draftKey = pending.draftKey
 		}
+		if text == "" {
+			text = pending.text
+		}
+		delete(m.pendingSends, pendingID)
 	}
-}
-
-func (m *Model) restorePendingSend(key, text string) {
-	if key == "" {
+	if draftKey == "" || strings.TrimSpace(text) == "" {
 		return
 	}
-	m.ensureDraftMaps()
-	pending := m.pendingSends[key]
-	if text == "" {
-		text = pending
-	}
-	delete(m.pendingSends, key)
-	if strings.TrimSpace(text) == "" {
-		return
-	}
-	if key == m.activeDraftKey && m.composerReady() {
-		value := m.composer.Value()
-		if strings.TrimSpace(value) == "" || value == pending {
-			m.drafts[key] = text
+	if draftKey == m.activeDraftKey && m.composerReady() {
+		if strings.TrimSpace(m.composer.Value()) == "" {
+			m.drafts[draftKey] = text
 			m.composer.SetValue(text)
 		}
 		return
 	}
-	if m.drafts[key] == pending || strings.TrimSpace(m.drafts[key]) == "" {
-		m.drafts[key] = text
+	if strings.TrimSpace(m.drafts[draftKey]) == "" {
+		m.drafts[draftKey] = text
 	}
 }
