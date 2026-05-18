@@ -129,6 +129,37 @@ func (b *Backend) SendReply(ctx context.Context, channelID, rootID, message stri
 	return b.sendPost(channelID, rootID, message)
 }
 
+func (b *Backend) UpdatePost(ctx context.Context, postID, message string) (domain.Post, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for channelID, posts := range b.posts {
+		for i := range posts {
+			if posts[i].ID != postID {
+				continue
+			}
+			posts[i].Message = message
+			b.posts[channelID][i] = posts[i]
+			return posts[i], nil
+		}
+	}
+	return domain.Post{}, fmt.Errorf("post %q not found", postID)
+}
+
+func (b *Backend) DeletePost(ctx context.Context, postID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for channelID, posts := range b.posts {
+		for i := range posts {
+			if posts[i].ID != postID {
+				continue
+			}
+			b.posts[channelID] = append(posts[:i], posts[i+1:]...)
+			return nil
+		}
+	}
+	return fmt.Errorf("post %q not found", postID)
+}
+
 func (b *Backend) sendPost(channelID, rootID, message string) (domain.Post, error) {
 	message = strings.TrimSpace(message)
 	if message == "fail-send" {

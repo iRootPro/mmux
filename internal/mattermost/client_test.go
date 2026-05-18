@@ -157,3 +157,49 @@ func TestClientConnectLoadAndSend(t *testing.T) {
 		t.Fatalf("bad sent post: %#v", post)
 	}
 }
+
+func TestUpdatePost(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v4/posts/p1", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Fatalf("method = %s", r.Method)
+		}
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["message"] != "edited" {
+			t.Fatalf("message = %q", body["message"])
+		}
+		_ = json.NewEncoder(w).Encode(mmPost{ID: "p1", ChannelID: "c1", UserID: "u1", Message: "edited", CreateAt: 1, UpdateAt: 2})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := New(config.Config{ServerURL: server.URL, Token: "token"})
+	client.cacheUsers([]mmUser{{ID: "u1", FirstName: "Sasha", LastName: "Neupokoev"}})
+	post, err := client.UpdatePost(context.Background(), "p1", "edited")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if post.ID != "p1" || post.ChannelID != "c1" || post.Message != "edited" || post.UserID != "u1" || post.UpdateAt != 2 || post.Username != "Sasha Neupokoev" {
+		t.Fatalf("bad updated post: %#v", post)
+	}
+}
+
+func TestDeletePost(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v4/posts/p1", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Fatalf("method = %s", r.Method)
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := New(config.Config{ServerURL: server.URL, Token: "token"})
+	if err := client.DeletePost(context.Background(), "p1"); err != nil {
+		t.Fatal(err)
+	}
+}

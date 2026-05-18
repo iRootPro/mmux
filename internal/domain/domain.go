@@ -147,6 +147,8 @@ type Backend interface {
 	LoadThread(ctx context.Context, postID string) ([]Post, error)
 	SendPost(ctx context.Context, channelID, message string) (Post, error)
 	SendReply(ctx context.Context, channelID, rootID, message string) (Post, error)
+	UpdatePost(ctx context.Context, postID, message string) (Post, error)
+	DeletePost(ctx context.Context, postID string) error
 	WatchPosts(ctx context.Context, events chan<- Event) error
 	Close() error
 }

@@ -117,3 +117,57 @@ func TestMockAuthExpiredIncludesActionMessage(t *testing.T) {
 		t.Fatalf("auth expired state missing action message: %#v", ev)
 	}
 }
+
+func TestUpdatePostMutatesStoredMessage(t *testing.T) {
+	b := New()
+	posts, err := b.LoadPosts(context.Background(), "dev", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := posts[len(posts)-1]
+
+	updated, err := b.UpdatePost(context.Background(), target.ID, "edited")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Message != "edited" {
+		t.Fatalf("updated message = %q", updated.Message)
+	}
+
+	posts, err = b.LoadPosts(context.Background(), "dev", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, post := range posts {
+		if post.ID == target.ID {
+			if post.Message != "edited" {
+				t.Fatalf("stored message = %q", post.Message)
+			}
+			return
+		}
+	}
+	t.Fatalf("post %q not found after update", target.ID)
+}
+
+func TestDeletePostRemovesStoredMessage(t *testing.T) {
+	b := New()
+	posts, err := b.LoadPosts(context.Background(), "dev", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := posts[len(posts)-1]
+
+	if err := b.DeletePost(context.Background(), target.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	posts, err = b.LoadPosts(context.Background(), "dev", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, post := range posts {
+		if post.ID == target.ID {
+			t.Fatalf("post %q still present after delete", target.ID)
+		}
+	}
+}

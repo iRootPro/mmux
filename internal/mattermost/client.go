@@ -324,6 +324,26 @@ func (c *Client) SendReply(ctx context.Context, channelID, rootID, message strin
 	return c.sendPost(ctx, channelID, rootID, message)
 }
 
+func (c *Client) UpdatePost(ctx context.Context, postID, message string) (domain.Post, error) {
+	var post mmPost
+	path := "/api/v4/posts/" + url.PathEscape(postID)
+	body := map[string]string{"message": message}
+	if err := c.do(ctx, http.MethodPut, path, body, &post); err != nil {
+		return domain.Post{}, fmt.Errorf("update post: %w", err)
+	}
+	out := post.toDomain("")
+	out.Username = c.usernameFor(out.UserID)
+	return out, nil
+}
+
+func (c *Client) DeletePost(ctx context.Context, postID string) error {
+	path := "/api/v4/posts/" + url.PathEscape(postID)
+	if err := c.do(ctx, http.MethodDelete, path, nil, nil); err != nil {
+		return fmt.Errorf("delete post: %w", err)
+	}
+	return nil
+}
+
 func (c *Client) sendPost(ctx context.Context, channelID, rootID, message string) (domain.Post, error) {
 	message = strings.TrimSpace(message)
 	if message == "" {
