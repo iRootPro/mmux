@@ -72,6 +72,8 @@ type Model struct {
 	triageOpen             bool
 	reactionPickerOpen     bool
 	reactionPickerSelected int
+	reactionTargetKind     reactionTargetKind
+	reactionTargetPostID   string
 	triageSelected         int
 	triageItems            []triageItem
 	dismissedTriage        map[string]struct{}
@@ -1157,6 +1159,8 @@ func (m Model) handleThreadKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.threadSelected = len(m.threadPosts) - 1
 			}
 			return m, nil
+		case "R":
+			return m.openThreadReactionPicker()
 		}
 		var cmd tea.Cmd
 		m.threadViewport, cmd = m.threadViewport.Update(msg)

@@ -24,6 +24,13 @@ var defaultReactions = []reactionOption{
 	{Name: "tada", Glyph: "🎉"},
 }
 
+type reactionTargetKind int
+
+const (
+	reactionTargetTimeline reactionTargetKind = iota
+	reactionTargetThread
+)
+
 func (m Model) openSelectedThread() (tea.Model, tea.Cmd) {
 	idx, ok := m.selectedPostIndex()
 	if !ok {
@@ -281,17 +288,20 @@ func (m Model) deleteSelectedPost() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) openReactionPicker() (tea.Model, tea.Cmd) {
-	if _, ok := m.selectedPostIndex(); !ok {
+	idx, ok := m.selectedPostIndex()
+	if !ok {
 		return m, nil
 	}
 	m.reactionPickerOpen = true
 	m.reactionPickerSelected = 0
+	m.reactionTargetKind = reactionTargetTimeline
+	m.reactionTargetPostID = m.posts[idx].ID
 	m.status = "pick a reaction"
 	return m, nil
 }
 
 func (m Model) toggleSelectedReaction() (tea.Model, tea.Cmd) {
-	idx, ok := m.selectedPostIndex()
+	post, ok := m.selectedReactionTarget()
 	if !ok {
 		return m, nil
 	}
@@ -301,7 +311,38 @@ func (m Model) toggleSelectedReaction() (tea.Model, tea.Cmd) {
 	reaction := defaultReactions[m.reactionPickerSelected]
 	m.reactionPickerOpen = false
 	m.status = "toggling reaction…"
-	return m, toggleReactionCmd(m.ctx, m.backend, m.posts[idx], reaction.Name)
+	return m, toggleReactionCmd(m.ctx, m.backend, post, reaction.Name)
+}
+
+func (m Model) openThreadReactionPicker() (tea.Model, tea.Cmd) {
+	post, ok := m.selectedThreadPost()
+	if !ok {
+		return m, nil
+	}
+	m.reactionPickerOpen = true
+	m.reactionPickerSelected = 0
+	m.reactionTargetKind = reactionTargetThread
+	m.reactionTargetPostID = post.ID
+	m.status = "pick a reaction"
+	return m, nil
+}
+
+func (m Model) selectedReactionTarget() (domain.Post, bool) {
+	switch m.reactionTargetKind {
+	case reactionTargetThread:
+		for _, post := range m.threadPosts {
+			if post.ID == m.reactionTargetPostID {
+				return post, true
+			}
+		}
+	default:
+		for _, post := range m.posts {
+			if post.ID == m.reactionTargetPostID {
+				return post, true
+			}
+		}
+	}
+	return domain.Post{}, false
 }
 
 func formatQuotedReply(post domain.Post) string {

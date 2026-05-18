@@ -237,3 +237,38 @@ func TestHelpTextMentionsReactionKey(t *testing.T) {
 		t.Fatalf("help text missing reaction key: %q", got)
 	}
 }
+
+func TestHandleThreadKeyROpensReactionPickerForSelectedThreadPost(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.threadOpen = true
+	m.threadPosts = []domain.Post{
+		{ID: "root", ChannelID: "c1", Message: "root"},
+		{ID: "r1", ChannelID: "c1", RootID: "root", Message: "reply"},
+	}
+	m.threadSelected = 1
+
+	updated, _ := m.handleThreadKey(actionKey("R"))
+	got := updated.(Model)
+	if !got.reactionPickerOpen {
+		t.Fatal("reaction picker should open from thread messages")
+	}
+	if got.reactionTargetPostID != "r1" {
+		t.Fatalf("reactionTargetPostID = %q", got.reactionTargetPostID)
+	}
+}
+
+func TestReactionPickerTargetsSelectedThreadPost(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.reactionPickerOpen = true
+	m.reactionTargetKind = reactionTargetThread
+	m.reactionTargetPostID = "r1"
+	m.threadPosts = []domain.Post{
+		{ID: "root", ChannelID: "c1", Message: "root"},
+		{ID: "r1", ChannelID: "c1", RootID: "root", Message: "reply"},
+	}
+	m.posts = []domain.Post{{ID: "p1", ChannelID: "c1", Message: "timeline"}}
+	target, ok := m.selectedReactionTarget()
+	if !ok || target.ID != "r1" {
+		t.Fatalf("selected reaction target = %#v ok=%v", target, ok)
+	}
+}
