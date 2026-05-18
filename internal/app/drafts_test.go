@@ -5,9 +5,21 @@ import (
 
 	"band-tui/internal/config"
 	"band-tui/internal/domain"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func testConfig() config.Config { return config.Config{Mock: true} }
+
+func draftKey(s string) tea.KeyMsg {
+	switch s {
+	case "esc":
+		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "enter":
+		return tea.KeyMsg{Type: tea.KeyEnter}
+	}
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+}
 
 func TestDraftKeysAreStable(t *testing.T) {
 	if got := channelDraftKey("dev"); got != "channel:dev" {
@@ -91,5 +103,54 @@ func TestInitialChannelLoadsChannelDraftKey(t *testing.T) {
 	m.switchDraft(m.currentDraftKey())
 	if got := m.activeDraftKey; got != channelDraftKey("dev") {
 		t.Fatalf("active draft key = %q", got)
+	}
+}
+
+func TestThreadDraftSurvivesCloseAndReopen(t *testing.T) {
+	m := New(nil, testConfig(), false)
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.posts = []domain.Post{{ID: "root", ChannelID: "dev", Username: "Alice", Message: "root"}}
+	m.selectedPost = 0
+	m.loadDraft(channelDraftKey("dev"))
+	m.composer.SetValue("channel text")
+
+	updated, _ := m.openSelectedThread()
+	m = updated.(Model)
+	if got := m.activeDraftKey; got != threadDraftKey("dev", "root") {
+		t.Fatalf("active thread draft key = %q", got)
+	}
+	if got := m.composer.Value(); got != "" {
+		t.Fatalf("new thread composer = %q, want empty", got)
+	}
+
+	m.composer.SetValue("reply text")
+	updated, _ = m.handleThreadKey(draftKey("esc"))
+	m = updated.(Model)
+	if got := m.composer.Value(); got != "channel text" {
+		t.Fatalf("channel draft restored after closing thread = %q", got)
+	}
+
+	updated, _ = m.openSelectedThread()
+	m = updated.(Model)
+	if got := m.composer.Value(); got != "reply text" {
+		t.Fatalf("thread draft restored = %q", got)
+	}
+}
+
+func TestChannelAndThreadDraftsAreIsolated(t *testing.T) {
+	m := New(nil, testConfig(), false)
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.drafts[channelDraftKey("dev")] = "channel text"
+	m.drafts[threadDraftKey("dev", "root")] = "reply text"
+
+	m.loadDraft(channelDraftKey("dev"))
+	if got := m.composer.Value(); got != "channel text" {
+		t.Fatalf("channel composer = %q", got)
+	}
+	m.loadDraft(threadDraftKey("dev", "root"))
+	if got := m.composer.Value(); got != "reply text" {
+		t.Fatalf("thread composer = %q", got)
 	}
 }

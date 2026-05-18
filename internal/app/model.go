@@ -243,6 +243,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if pendingThreadID != "" {
 			m.threadOpen = true
 			m.threadRootID = pendingThreadID
+			m.saveActiveDraft()
+			m.loadDraft(threadDraftKey(msg.channelID, pendingThreadID))
 			m.threadLoading = true
 			m.threadPosts = nil
 			m.threadFocusComposer = false
@@ -886,9 +888,11 @@ func (m Model) handleThreadKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		_ = m.backend.Close()
 		return m, tea.Quit
 	case "esc":
+		m.saveActiveDraft()
 		m.threadOpen = false
 		m.threadRootID = ""
 		m.threadPosts = nil
+		m.loadDraft(channelDraftKey(m.currentChannelID()))
 		m.resize()
 		m.refreshViewport()
 		m.scrollSelectedPostIntoView()
