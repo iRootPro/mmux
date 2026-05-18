@@ -81,3 +81,57 @@ func TestHandleTimelineKeyRQuotesSelectedPost(t *testing.T) {
 		t.Fatalf("quote not inserted, focus=%v composer=%q", got.focus, got.composer.Value())
 	}
 }
+
+func TestSelectedPostPermalinkBuildsTeamScopedURL(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.session = &domain.Session{ServerURL: "https://chat.example.com", Teams: []domain.Team{{ID: "t1", Name: "eng", DisplayName: "Engineering"}}}
+	m.channels = []domain.Channel{{ID: "c1", TeamID: "t1", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.posts = []domain.Post{{ID: "p1", ChannelID: "c1", Message: "hello"}}
+	m.selectedPost = 0
+
+	got, ok := m.selectedPostPermalink()
+	if !ok {
+		t.Fatal("expected permalink")
+	}
+	want := "https://chat.example.com/eng/pl/p1"
+	if got != want {
+		t.Fatalf("permalink = %q, want %q", got, want)
+	}
+}
+
+func TestSelectedPostPermalinkFallsBackToRootPath(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.session = &domain.Session{ServerURL: "https://chat.example.com"}
+	m.channels = []domain.Channel{{ID: "c1", Type: "D", DisplayName: "alisa"}}
+	m.selectedChannel = 0
+	m.posts = []domain.Post{{ID: "p1", ChannelID: "c1", Message: "hello"}}
+	m.selectedPost = 0
+
+	got, ok := m.selectedPostPermalink()
+	if !ok {
+		t.Fatal("expected permalink")
+	}
+	want := "https://chat.example.com/pl/p1"
+	if got != want {
+		t.Fatalf("permalink = %q, want %q", got, want)
+	}
+}
+
+func TestCopySelectedPostPermalinkSetsStatus(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.session = &domain.Session{ServerURL: "https://chat.example.com", Teams: []domain.Team{{ID: "t1", Name: "eng"}}}
+	m.channels = []domain.Channel{{ID: "c1", TeamID: "t1", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.posts = []domain.Post{{ID: "p1", ChannelID: "c1", Message: "hello"}}
+	m.selectedPost = 0
+
+	updated, cmd := m.copySelectedPostPermalink()
+	got := updated.(Model)
+	if got.status != "copying permalink…" {
+		t.Fatalf("status = %q", got.status)
+	}
+	if cmd == nil {
+		t.Fatal("expected clipboard command")
+	}
+}

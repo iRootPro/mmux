@@ -730,6 +730,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.copySelectedPostText()
 		case "r":
 			return m.quoteSelectedPost()
+		case "p":
+			return m.copySelectedPostPermalink()
 		}
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"net/url"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -169,6 +170,56 @@ func (m Model) quoteSelectedPost() (tea.Model, tea.Cmd) {
 	m.applyFocus()
 	m.status = "quote inserted"
 	return m, nil
+}
+
+func (m Model) selectedPostPermalink() (string, bool) {
+	idx, ok := m.selectedPostIndex()
+	if !ok {
+		return "", false
+	}
+	serverURL := ""
+	if m.session != nil {
+		serverURL = strings.TrimRight(strings.TrimSpace(m.session.ServerURL), "/")
+	}
+	if serverURL == "" {
+		return "", false
+	}
+	post := m.posts[idx]
+	if post.ID == "" {
+		return "", false
+	}
+	path := "/pl/" + url.PathEscape(post.ID)
+	if chIdx := m.channelIndexByID(post.ChannelID); chIdx >= 0 {
+		teamID := m.channels[chIdx].TeamID
+		if m.session != nil && teamID != "" {
+			for _, team := range m.session.Teams {
+				if team.ID != teamID {
+					continue
+				}
+				slug := strings.TrimSpace(team.Name)
+				if slug == "" {
+					slug = strings.TrimSpace(team.DisplayName)
+				}
+				if slug != "" {
+					path = "/" + url.PathEscape(slug) + path
+				}
+				break
+			}
+		}
+	}
+	return serverURL + path, true
+}
+
+func (m Model) copySelectedPostPermalink() (tea.Model, tea.Cmd) {
+	link, ok := m.selectedPostPermalink()
+	if !ok {
+		m.status = "no permalink for selected message"
+		return m, nil
+	}
+	m.status = "copying permalink…"
+	return m, func() tea.Msg {
+		return actionDoneMsg{err: clipboard.WriteAll(link), status: "permalink copied"}
+	}
 }
 
 func formatQuotedReply(post domain.Post) string {
