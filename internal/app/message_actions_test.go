@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -193,5 +194,113 @@ func TestHandleTimelineKeyEEntersEditMode(t *testing.T) {
 	got := updated.(Model)
 	if got.editingPostID != "p1" || got.focus != focusComposer {
 		t.Fatalf("edit mode not entered: editing=%q focus=%v", got.editingPostID, got.focus)
+	}
+}
+
+type updateRecordingBackend struct {
+	updatedPostID string
+	updatedText   string
+	updateErr     error
+}
+
+func (b *updateRecordingBackend) Connect(context.Context) (*domain.Session, error) { return nil, nil }
+func (b *updateRecordingBackend) LoadChannels(context.Context, string) ([]domain.Channel, error) {
+	return nil, nil
+}
+func (b *updateRecordingBackend) LoadPosts(context.Context, string, int) ([]domain.Post, error) {
+	return nil, nil
+}
+func (b *updateRecordingBackend) LoadPostsBefore(context.Context, string, string, int) ([]domain.Post, error) {
+	return nil, nil
+}
+func (b *updateRecordingBackend) ViewChannel(context.Context, string) error { return nil }
+func (b *updateRecordingBackend) LoadThread(context.Context, string) ([]domain.Post, error) {
+	return nil, nil
+}
+func (b *updateRecordingBackend) SendPost(context.Context, string, string) (domain.Post, error) {
+	return domain.Post{}, nil
+}
+func (b *updateRecordingBackend) SendReply(context.Context, string, string, string) (domain.Post, error) {
+	return domain.Post{}, nil
+}
+func (b *updateRecordingBackend) UpdatePost(_ context.Context, postID, message string) (domain.Post, error) {
+	b.updatedPostID = postID
+	b.updatedText = message
+	if b.updateErr != nil {
+		return domain.Post{}, b.updateErr
+	}
+	return domain.Post{ID: postID, ChannelID: "c1", UserID: "me", Username: "You", Message: message}, nil
+}
+func (b *updateRecordingBackend) DeletePost(context.Context, string) error              { return nil }
+func (b *updateRecordingBackend) WatchPosts(context.Context, chan<- domain.Event) error { return nil }
+func (b *updateRecordingBackend) Close() error                                          { return nil }
+
+func TestEditSubmitUsesUpdatePostPath(t *testing.T) {
+	backend := &updateRecordingBackend{}
+	m := New(backend, testConfig(), false)
+	m.focus = focusComposer
+	m.session = &domain.Session{User: domain.User{ID: "me"}}
+	m.channels = []domain.Channel{{ID: "c1", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.editingPostID = "p1"
+	m.composer.SetValue("edited")
+
+	updated, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	got := updated.(Model)
+	if got.status != "updating…" {
+		t.Fatalf("status = %q", got.status)
+	}
+	if cmd == nil {
+		t.Fatal("expected update command")
+	}
+	msg := cmd()
+	updatedMsg, ok := msg.(postUpdatedMsg)
+	if !ok {
+		t.Fatalf("command msg = %#v", msg)
+	}
+	if updatedMsg.post.ID != "p1" || backend.updatedPostID != "p1" || backend.updatedText != "edited" {
+		t.Fatalf("update path not used: msg=%#v backend=%#v", updatedMsg, backend)
+	}
+}
+
+func TestSuccessfulEditClearsEditModeAndUpdatesPost(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.session = &domain.Session{User: domain.User{ID: "me"}}
+	m.channels = []domain.Channel{{ID: "c1", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.editingPostID = "p1"
+	m.posts = []domain.Post{{ID: "p1", ChannelID: "c1", UserID: "me", Username: "You", Message: "old"}}
+	m.postsByChannel = map[string][]domain.Post{"c1": {{ID: "p1", ChannelID: "c1", UserID: "me", Username: "You", Message: "old"}}}
+	m.threadPosts = []domain.Post{{ID: "p1", ChannelID: "c1", UserID: "me", Username: "You", Message: "old"}}
+	m.composer.SetValue("edited")
+
+	updated, _ := m.Update(postUpdatedMsg{post: domain.Post{ID: "p1", ChannelID: "c1", UserID: "me", Username: "You", Message: "edited"}})
+	got := updated.(Model)
+	if got.editingPostID != "" {
+		t.Fatalf("editingPostID = %q", got.editingPostID)
+	}
+	if got.posts[0].Message != "edited" || got.postsByChannel["c1"][0].Message != "edited" || got.threadPosts[0].Message != "edited" {
+		t.Fatalf("updated post not propagated: %#v %#v %#v", got.posts, got.postsByChannel["c1"], got.threadPosts)
+	}
+	if got.composer.Value() != "" {
+		t.Fatalf("composer not cleared after successful edit: %q", got.composer.Value())
+	}
+}
+
+func TestFailedEditKeepsComposerTextAndEditMode(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.editingPostID = "p1"
+	m.composer.SetValue("edited")
+
+	updated, _ := m.Update(postUpdatedMsg{err: assertErr{}})
+	got := updated.(Model)
+	if got.editingPostID != "p1" {
+		t.Fatalf("editingPostID = %q", got.editingPostID)
+	}
+	if got.composer.Value() != "edited" {
+		t.Fatalf("composer = %q", got.composer.Value())
+	}
+	if got.status != "update failed" {
+		t.Fatalf("status = %q", got.status)
 	}
 }

@@ -360,6 +360,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		m.viewport.GotoBottom()
 		return m, nil
+	case postUpdatedMsg:
+		if msg.err != nil {
+			m.err = msg.err.Error()
+			m.status = "update failed"
+			return m, nil
+		}
+		m.err = ""
+		m.replacePost(msg.post)
+		m.replaceCachedPost(msg.post)
+		m.replaceThreadPost(msg.post)
+		m.editingPostID = ""
+		m.composer.Reset()
+		m.status = "message updated"
+		m.refreshViewport()
+		m.refreshThreadViewport()
+		return m, nil
 
 	case backendEventMsg:
 		cmds := []tea.Cmd{waitEventCmd(m.events)}
@@ -747,6 +763,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			text := strings.TrimSpace(m.composer.Value())
 			if text == "" || m.currentChannelID() == "" {
 				return m, nil
+			}
+			if m.editingPostID != "" {
+				m.status = "updating…"
+				return m, updatePostCmd(m.ctx, m.backend, m.editingPostID, text)
 			}
 			key := m.currentDraftKey()
 			pendingID := m.beginPendingSend(key, text)
@@ -1716,6 +1736,41 @@ func (m *Model) addPost(post domain.Post) {
 	}
 	m.posts = append(m.posts, post)
 	m.addPostToCache(post.ChannelID, post)
+}
+
+func (m *Model) replacePost(post domain.Post) {
+	post = m.normalizePost(post)
+	for i := range m.posts {
+		if m.posts[i].ID == post.ID {
+			m.posts[i] = post
+			return
+		}
+	}
+}
+
+func (m *Model) replaceCachedPost(post domain.Post) {
+	post = m.normalizePost(post)
+	if m.postsByChannel == nil {
+		return
+	}
+	posts := m.postsByChannel[post.ChannelID]
+	for i := range posts {
+		if posts[i].ID == post.ID {
+			posts[i] = post
+			m.postsByChannel[post.ChannelID] = posts
+			return
+		}
+	}
+}
+
+func (m *Model) replaceThreadPost(post domain.Post) {
+	post = m.normalizePost(post)
+	for i := range m.threadPosts {
+		if m.threadPosts[i].ID == post.ID {
+			m.threadPosts[i] = post
+			return
+		}
+	}
 }
 
 func (m *Model) normalizePost(post domain.Post) domain.Post {

@@ -61,6 +61,11 @@ type replySentMsg struct {
 	err       error
 }
 
+type postUpdatedMsg struct {
+	post domain.Post
+	err  error
+}
+
 type backendEventMsg struct {
 	event domain.Event
 }
@@ -179,6 +184,13 @@ func sendReplyCmd(ctx context.Context, backend domain.Backend, channelID, rootID
 	return func() tea.Msg {
 		post, err := backend.SendReply(ctx, channelID, rootID, text)
 		return replySentMsg{channelID: channelID, rootID: rootID, draftKey: draftKey, pendingID: pendingID, text: text, post: post, err: err}
+	}
+}
+
+func updatePostCmd(ctx context.Context, backend domain.Backend, postID, text string) tea.Cmd {
+	return func() tea.Msg {
+		post, err := backend.UpdatePost(ctx, postID, text)
+		return postUpdatedMsg{post: post, err: err}
 	}
 }
 
