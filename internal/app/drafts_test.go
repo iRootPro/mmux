@@ -383,3 +383,26 @@ func TestOpenCurrentChannelSavesOldDraftAfterDirectChannelMutation(t *testing.T)
 		t.Fatalf("new channel draft not loaded after direct selectedChannel mutation: %q", got.composer.Value())
 	}
 }
+
+func TestSwitchTeamSavesDraftAndClearsActiveComposer(t *testing.T) {
+	m := New(nil, testConfig(), false)
+	m.session = &domain.Session{Teams: []domain.Team{{ID: "one", Name: "one"}, {ID: "two", Name: "two"}}}
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
+	m.selectedTeam = 0
+	m.selectedChannel = 0
+	key := channelDraftKey("dev")
+	m.loadDraft(key)
+	m.composer.SetValue("team scoped draft")
+
+	updated, _ := m.switchTeam(1)
+	got := updated.(Model)
+	if got.drafts[key] != "team scoped draft" {
+		t.Fatalf("team switch should save active draft before clearing scope: %#v", got.drafts)
+	}
+	if got.activeDraftKey != "" {
+		t.Fatalf("active draft key should clear on team switch, got %q", got.activeDraftKey)
+	}
+	if got.composer.Value() != "" {
+		t.Fatalf("composer should clear on team switch, got %q", got.composer.Value())
+	}
+}

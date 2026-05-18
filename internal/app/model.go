@@ -726,6 +726,7 @@ func (m Model) switchTeam(index int) (tea.Model, tea.Cmd) {
 	if index == m.selectedTeam {
 		return m, nil
 	}
+	m.saveActiveDraft()
 	m.selectedTeam = index
 	m.selectedChannel = 0
 	m.selectedPost = -1
@@ -746,6 +747,10 @@ func (m Model) switchTeam(index int) (tea.Model, tea.Cmd) {
 	m.triageOpen = false
 	m.triageSelected = 0
 	m.triageItems = nil
+	m.activeDraftKey = ""
+	if m.composerReady() {
+		m.composer.Reset()
+	}
 	m.status = "loading scope…"
 	m.refreshViewport()
 	return m, m.loadCurrentScopeCmd()
