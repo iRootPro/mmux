@@ -87,6 +87,12 @@ type postDeletedMsg struct {
 	err    error
 }
 
+type reactionToggledMsg struct {
+	post  domain.Post
+	added bool
+	err   error
+}
+
 type channelViewedMsg struct {
 	channelID string
 	err       error
@@ -203,6 +209,18 @@ func updatePostCmd(ctx context.Context, backend domain.Backend, postID, text str
 func deletePostCmd(ctx context.Context, backend domain.Backend, postID string) tea.Cmd {
 	return func() tea.Msg {
 		return postDeletedMsg{postID: postID, err: backend.DeletePost(ctx, postID)}
+	}
+}
+
+func toggleReactionCmd(ctx context.Context, backend domain.Backend, post domain.Post, emojiName string) tea.Cmd {
+	return func() tea.Msg {
+		reaction, ok := reactionState(post, emojiName)
+		if ok && reaction.Reacted {
+			updated, err := backend.RemoveReaction(ctx, post.ID, emojiName)
+			return reactionToggledMsg{post: updated, added: false, err: err}
+		}
+		updated, err := backend.AddReaction(ctx, post.ID, emojiName)
+		return reactionToggledMsg{post: updated, added: true, err: err}
 	}
 }
 

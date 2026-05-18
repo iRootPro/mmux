@@ -290,6 +290,20 @@ func (m Model) openReactionPicker() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) toggleSelectedReaction() (tea.Model, tea.Cmd) {
+	idx, ok := m.selectedPostIndex()
+	if !ok {
+		return m, nil
+	}
+	if m.reactionPickerSelected < 0 || m.reactionPickerSelected >= len(defaultReactions) {
+		return m, nil
+	}
+	reaction := defaultReactions[m.reactionPickerSelected]
+	m.reactionPickerOpen = false
+	m.status = "toggling reaction…"
+	return m, toggleReactionCmd(m.ctx, m.backend, m.posts[idx], reaction.Name)
+}
+
 func formatQuotedReply(post domain.Post) string {
 	message := strings.TrimSpace(post.Message)
 	if message == "" {

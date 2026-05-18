@@ -403,6 +403,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "message deleted"
 		return m, nil
 
+	case reactionToggledMsg:
+		m.reactionPickerOpen = false
+		if msg.err != nil {
+			m.err = msg.err.Error()
+			m.status = "reaction failed"
+			return m, nil
+		}
+		m.err = ""
+		m.mergeReactionPost(msg.post)
+		m.mergeReactionCachedPost(msg.post)
+		m.mergeReactionThreadPost(msg.post)
+		if msg.added {
+			m.status = "reaction added"
+		} else {
+			m.status = "reaction removed"
+		}
+		m.refreshViewport()
+		m.refreshThreadViewport()
+		return m, nil
+
 	case backendEventMsg:
 		cmds := []tea.Cmd{waitEventCmd(m.events)}
 		switch msg.event.Kind {
@@ -1055,7 +1075,7 @@ func (m Model) handleReactionPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "enter":
-		return m, nil
+		return m.toggleSelectedReaction()
 	}
 	return m, nil
 }
@@ -1880,6 +1900,48 @@ func (m *Model) mergeUpdatedThreadPost(post domain.Post) {
 	for i := range m.threadPosts {
 		if m.threadPosts[i].ID == post.ID {
 			m.threadPosts[i] = mergeEditedPost(m.threadPosts[i], post)
+			return
+		}
+	}
+}
+
+func mergeReactedPost(existing, updated domain.Post) domain.Post {
+	merged := mergeEditedPost(existing, updated)
+	merged.Reactions = append([]domain.PostReaction(nil), updated.Reactions...)
+	return merged
+}
+
+func (m *Model) mergeReactionPost(post domain.Post) {
+	post = m.normalizePost(post)
+	for i := range m.posts {
+		if m.posts[i].ID == post.ID {
+			m.posts[i] = mergeReactedPost(m.posts[i], post)
+			return
+		}
+	}
+}
+
+func (m *Model) mergeReactionCachedPost(post domain.Post) {
+	post = m.normalizePost(post)
+	if m.postsByChannel == nil {
+		return
+	}
+	for channelID, posts := range m.postsByChannel {
+		for i := range posts {
+			if posts[i].ID == post.ID {
+				posts[i] = mergeReactedPost(posts[i], post)
+				m.postsByChannel[channelID] = posts
+				return
+			}
+		}
+	}
+}
+
+func (m *Model) mergeReactionThreadPost(post domain.Post) {
+	post = m.normalizePost(post)
+	for i := range m.threadPosts {
+		if m.threadPosts[i].ID == post.ID {
+			m.threadPosts[i] = mergeReactedPost(m.threadPosts[i], post)
 			return
 		}
 	}
