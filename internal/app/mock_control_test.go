@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"band-tui/internal/domain"
@@ -59,7 +60,10 @@ func TestBackendEventStateUpdatesStatus(t *testing.T) {
 	m := New(noopBackend{}, testConfig(), false)
 	updated, _ := m.Update(backendEventMsg{event: domain.Event{Kind: domain.EventState, State: domain.ConnectionOffline, Message: "showing cached messages"}})
 	got := updated.(Model)
-	if got.status == "" || got.status == "connecting…" {
-		t.Fatalf("state event should update visible status, got %q", got.status)
+	if got.connectionState != domain.ConnectionOffline {
+		t.Fatalf("state event should update explicit connection state, got %q", got.connectionState)
+	}
+	if rendered := got.renderStatus(120); !strings.Contains(rendered, "offline") {
+		t.Fatalf("rendered status should surface connection state, got %q", rendered)
 	}
 }

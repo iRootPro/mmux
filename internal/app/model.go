@@ -75,6 +75,10 @@ type Model struct {
 	activeDraftKey       string
 	pendingSends         map[string]pendingSend
 	nextPendingSendID    int64
+	connectionState      domain.ConnectionState
+	connectionAttempt    int
+	connectionRetryIn    time.Duration
+	connectionMessage    string
 	infoOpen             bool
 	teamSwitcherOpen     bool
 	teamSwitcherSelected int
@@ -143,6 +147,7 @@ func New(backend domain.Backend, cfg config.Config, mockFallback bool) Model {
 		drafts:            map[string]string{},
 		pendingSends:      map[string]pendingSend{},
 		status:            "connecting…",
+		connectionState:   domain.ConnectionConnecting,
 		loading:           true,
 		hasOlder:          true,
 		mockFallback:      mockFallback,
@@ -175,6 +180,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.session = msg.session
 		m.selectedTeam = m.pickTeam()
 		m.status = "connected"
+		m.setConnectionState(domain.ConnectionConnected, 0, 0, "", nil)
 		cmds := []tea.Cmd{m.loadCurrentScopeCmd()}
 		if !m.watching {
 			m.watching = true
@@ -409,12 +415,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.rebuildTriageItems()
 		case domain.EventState:
-			m.status = connectionEventStatus(msg.event)
-			if msg.event.Err != nil {
-				m.err = msg.event.Err.Error()
-			} else if msg.event.State == domain.ConnectionConnected {
-				m.err = ""
-			}
+			m.setConnectionState(msg.event.State, msg.event.Attempt, msg.event.RetryIn, msg.event.Message, msg.event.Err)
 		case domain.EventStatus:
 			m.updateUserStatus(msg.event.UserID, msg.event.Status)
 		case domain.EventError:
@@ -462,6 +463,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
+}
+
+func (m *Model) setConnectionState(state domain.ConnectionState, attempt int, retryIn time.Duration, message string, err error) {
+	m.connectionState = state
+	m.connectionAttempt = attempt
+	m.connectionRetryIn = retryIn
+	m.connectionMessage = strings.TrimSpace(message)
+	if err != nil {
+		m.err = err.Error()
+	} else if state == domain.ConnectionConnected {
+		m.err = ""
+	}
+}
+
+func (m Model) connectionStatusText() string {
+	if m.connectionState == "" {
+		return ""
+	}
+	return connectionEventStatus(domain.Event{
+		State:   m.connectionState,
+		Attempt: m.connectionAttempt,
+		RetryIn: m.connectionRetryIn,
+		Message: m.connectionMessage,
+	})
 }
 
 func connectionEventStatus(ev domain.Event) string {

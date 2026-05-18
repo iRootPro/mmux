@@ -1196,6 +1196,9 @@ func (m Model) renderStatus(width int) string {
 			status += "  " + muted.Render(hint)
 		}
 	}
+	if net := m.connectionStatusText(); net != "" {
+		status = "net: " + net + " · " + status
+	}
 	if scope := m.sidebarTitle(); scope != "" {
 		status = "scope: " + scope + " · " + status
 	}
