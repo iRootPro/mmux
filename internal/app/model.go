@@ -1239,9 +1239,7 @@ func (m Model) openCurrentChannel() (tea.Model, tea.Cmd) {
 	if channelID == "" {
 		return m, nil
 	}
-	if m.activeDraftKey == "" {
-		m.loadDraft(m.currentDraftKey())
-	}
+	m.switchDraft(channelDraftKey(channelID))
 	m.clearUnread(channelID)
 	m.rebuildTriageItems()
 	m.hasOlder = true

@@ -361,3 +361,25 @@ func TestSendResponseDoesNotReplaceSavedNewerInactiveDraft(t *testing.T) {
 		t.Fatalf("inactive newer draft deleted after success: %#v", got.drafts)
 	}
 }
+
+func TestOpenCurrentChannelSavesOldDraftAfterDirectChannelMutation(t *testing.T) {
+	m := New(nil, testConfig(), false)
+	m.channels = []domain.Channel{
+		{ID: "dev", Type: "O", DisplayName: "dev"},
+		{ID: "alerts", Type: "O", DisplayName: "alerts"},
+	}
+	m.selectedChannel = 0
+	m.loadDraft(channelDraftKey("dev"))
+	m.composer.SetValue("dev direct text")
+	m.drafts[channelDraftKey("alerts")] = "alerts saved text"
+
+	m.selectedChannel = 1
+	updated, _ := m.openCurrentChannel()
+	got := updated.(Model)
+	if got.drafts[channelDraftKey("dev")] != "dev direct text" {
+		t.Fatalf("old draft not saved after direct selectedChannel mutation: %#v", got.drafts)
+	}
+	if got.composer.Value() != "alerts saved text" {
+		t.Fatalf("new channel draft not loaded after direct selectedChannel mutation: %q", got.composer.Value())
+	}
+}
