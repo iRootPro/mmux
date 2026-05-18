@@ -218,6 +218,93 @@ func (m Model) renderActivity(width, height int) string {
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Top, box)
 }
 
+func (m Model) renderTriage(width, height int) string {
+	boxWidth := min(max(72, width/2), max(72, width-8))
+	visibleItems := min(max(1, len(m.triageItems)), 12)
+	boxHeight := min(max(8, visibleItems+5), max(8, height-4))
+	var b strings.Builder
+	b.WriteString(headerStyle.Render(fmt.Sprintf("Triage %d", len(m.triageItems))))
+	b.WriteString(muted.Render("  enter open · d done · esc close"))
+	b.WriteString("\n\n")
+
+	limit := max(1, boxHeight-5)
+	start := 0
+	if m.triageSelected >= limit {
+		start = m.triageSelected - limit + 1
+	}
+	if start > 0 {
+		b.WriteString(muted.Render("…"))
+		b.WriteString("\n")
+	}
+	for i := start; i < len(m.triageItems) && i < start+limit; i++ {
+		line := m.renderTriageItem(m.triageItems[i], boxWidth-4)
+		if i == m.triageSelected {
+			line = pillStyle.Width(boxWidth - 4).Render(truncate(line, boxWidth-6))
+		} else {
+			line = muted.Render(truncate(line, boxWidth-4))
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	if len(m.triageItems) == 0 {
+		b.WriteString(muted.Render("Nothing to triage."))
+		b.WriteString("\n")
+	} else if start+limit < len(m.triageItems) {
+		b.WriteString(muted.Render("…"))
+		b.WriteString("\n")
+	}
+
+	box := boxStyle.Width(boxWidth).Height(boxHeight).Render(b.String())
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
+func (m Model) renderTriageItem(item triageItem, width int) string {
+	title := item.Title
+	if title == "" {
+		title = m.channelLabel(item.ChannelID)
+	}
+	freshness := ""
+	if item.CreateAt > 0 {
+		freshness = formatTime(item.CreateAt)
+	}
+	switch item.Kind {
+	case triageMention:
+		return truncate(triageLine("@", title, item.Actor, item.Preview, "", freshness), width)
+	case triageThreadReply:
+		return truncate(triageLine("↳", title, item.Actor, item.Preview, "", freshness), width)
+	case triageUnreadChannel:
+		count := ""
+		if item.UnreadCount > 0 {
+			count = fmt.Sprintf("%d unread", item.UnreadCount)
+		}
+		return truncate(triageLine("•", title, item.Actor, item.Preview, count, freshness), width)
+	default:
+		return truncate(triageLine("•", title, item.Actor, item.Preview, "", freshness), width)
+	}
+}
+
+func triageLine(prefix, title, actor, preview, fallback, freshness string) string {
+	var parts []string
+	if title != "" {
+		parts = append(parts, title)
+	}
+	if actor != "" {
+		parts = append(parts, actor)
+	}
+	if preview != "" {
+		parts = append(parts, preview)
+	} else if fallback != "" {
+		parts = append(parts, fallback)
+	}
+	if freshness != "" {
+		parts = append(parts, freshness)
+	}
+	if len(parts) == 0 {
+		return prefix
+	}
+	return prefix + " " + strings.Join(parts, " · ")
+}
+
 func (m Model) renderActivityItem(item activityItem, width int) string {
 	if item.HasPost {
 		return m.renderActivityLine(item.Post, width)
@@ -1305,6 +1392,8 @@ func (m Model) helpText() string {
   j/k or arrows     move in sidebar / timeline
   n / N             next / previous unread or mention
   a                 open mentions inbox (@you/@all/@channel/@here)
+  u                 open triage inbox (mentions/unread/thread replies)
+                    triage: enter open · d done · n/N move · esc close
   i                 open channel/person info (when not typing)
   F2 / ctrl+g       switch scope/team/workspace
   w / T             switch scope when not typing

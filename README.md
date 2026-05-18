@@ -99,6 +99,7 @@ So the recommended CLI flow is either a Mattermost personal/session token via
 - `j/k` or arrows — navigate sidebar / timeline
 - `a` — open mentions inbox (`@you`, `@all`, `@channel`, `@here`)
 - `n` / `N` — next / previous unread or mention
+- `u` — open triage inbox for mentions, unread channels, and thread replies (`enter` open, `d` locally dismiss, `n/N` move inside the overlay, `esc` close)
 - `i` — open channel/person info (when focus is not in composer)
 - `F2` / `ctrl+g` — switch scope/team/workspace
 - `w` / `T` — switch scope when not typing

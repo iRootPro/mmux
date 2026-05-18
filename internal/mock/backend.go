@@ -22,8 +22,8 @@ func New() *Backend {
 	now := time.Now()
 	channels := []domain.Channel{
 		{ID: "town-square", TeamID: "wb", Name: "town-square", DisplayName: "town square", Type: "O"},
-		{ID: "dev", TeamID: "wb", Name: "dev", DisplayName: "dev", Type: "O", Unread: 2},
-		{ID: "random", TeamID: "wb", Name: "random", DisplayName: "random", Type: "O"},
+		{ID: "dev", TeamID: "wb", Name: "dev", DisplayName: "dev", Type: "O", Unread: 2, LastPostAt: now.Add(-6 * time.Minute).UnixMilli()},
+		{ID: "random", TeamID: "wb", Name: "random", DisplayName: "random", Type: "O", Mentions: 1, Unread: 1, LastPostAt: now.Add(-5 * time.Minute).UnixMilli()},
 		{ID: "dm-alisa", TeamID: "wb", Name: "alisa", DisplayName: "alisa", Type: "D", LastPostAt: now.Add(-8 * time.Minute).UnixMilli()},
 	}
 	posts := map[string][]domain.Post{}

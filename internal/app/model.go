@@ -67,6 +67,10 @@ type Model struct {
 	switcherSelected     int
 	activityOpen         bool
 	activitySelected     int
+	triageOpen           bool
+	triageSelected       int
+	triageItems          []triageItem
+	dismissedTriage      map[string]struct{}
 	infoOpen             bool
 	teamSwitcherOpen     bool
 	teamSwitcherSelected int
@@ -131,6 +135,7 @@ func New(backend domain.Backend, cfg config.Config, mockFallback bool) Model {
 		selectedPost:      -1,
 		favoriteChannels:  favorites,
 		collapsedSections: map[string]bool{},
+		dismissedTriage:   map[string]struct{}{},
 		status:            "connecting…",
 		loading:           true,
 		hasOlder:          true,
@@ -181,6 +186,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = ""
 		m.channels = msg.channels
 		m.selectedChannel = m.pickChannel()
+		m.rebuildTriageItems()
 		if len(m.channels) == 0 {
 			m.status = "no channels"
 			m.refreshViewport()
@@ -220,6 +226,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.markChannelRead(msg.channelID)
 		m.cachePosts(msg.channelID, m.posts)
+		m.rebuildTriageItems()
 		m.refreshViewport()
 		if m.selectedPost >= 0 && m.selectedPost < len(m.posts)-1 {
 			m.scrollSelectedPostIntoView()
@@ -261,6 +268,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.hasOlder = len(msg.posts) >= 80
 		m.status = fmt.Sprintf("%d messages", len(m.posts))
 		m.refreshViewport()
+		m.rebuildTriageItems()
 		return m, nil
 
 	case threadLoadedMsg:
@@ -276,6 +284,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = ""
 		m.threadPosts = msg.posts
+		m.rebuildTriageItems()
 		m.refreshThreadViewport()
 		m.threadViewport.GotoBottom()
 		return m, nil
@@ -293,6 +302,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.threadPosts = append(m.threadPosts, m.normalizePost(msg.post))
 		m.bumpReplyCount(msg.rootID)
 		m.refreshViewport()
+		m.rebuildTriageItems()
 		m.refreshThreadViewport()
 		m.threadViewport.GotoBottom()
 		m.status = "reply sent"
@@ -312,6 +322,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = ""
 		m.addPost(msg.post)
 		m.status = "sent"
+		m.rebuildTriageItems()
 		m.refreshViewport()
 		m.viewport.GotoBottom()
 		return m, nil
@@ -321,25 +332,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.event.Kind {
 		case domain.EventPost:
 			post := msg.event.Post
-			if m.isMentionActivity(post) {
+			mentionActivity := m.isMentionActivity(post)
+			if mentionActivity {
 				post.Unread = true
 				m.status = m.activityStatus(post)
 			}
 			m.recordActivity(post)
 			if post.RootID != "" {
 				viewCurrent := post.ChannelID == m.currentChannelID()
+				visibleThread := viewCurrent && m.threadOpen && post.RootID == m.threadRootID
+				if !visibleThread {
+					post.Unread = true
+					post.ThreadUnread = true
+				}
+				m.addPostToCache(post.ChannelID, post)
 				m.bumpReplyCount(post.RootID)
-				if post.Unread {
+				if !visibleThread {
 					m.markThreadUnread(post.ChannelID, post.RootID)
 				}
-				if m.threadOpen && post.RootID == m.threadRootID {
+				if visibleThread {
 					m.threadPosts = append(m.threadPosts, m.normalizePost(post))
 					m.refreshThreadViewport()
 					m.threadViewport.GotoBottom()
 				}
-				if !viewCurrent {
+				if !visibleThread {
 					m.bumpUnread(post.ChannelID)
-					if post.Unread {
+					if mentionActivity {
 						m.bumpMention(post.ChannelID)
 					}
 				} else {
@@ -347,10 +365,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmds = append(cmds, viewChannelCmd(m.ctx, m.backend, post.ChannelID))
 				}
 				m.refreshViewport()
+				m.rebuildTriageItems()
 				return m, tea.Batch(cmds...)
 			}
+			viewCurrent := post.ChannelID == m.currentChannelID()
+			if !viewCurrent {
+				post.Unread = true
+			}
 			m.addPostToCache(post.ChannelID, post)
-			if post.ChannelID == m.currentChannelID() {
+			if viewCurrent {
 				wasAtEnd := m.selectedPost >= len(m.posts)-1
 				m.addPost(post)
 				if wasAtEnd {
@@ -362,10 +385,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, viewChannelCmd(m.ctx, m.backend, post.ChannelID))
 			} else {
 				m.bumpUnread(post.ChannelID)
-				if post.Unread {
+				if mentionActivity {
 					m.bumpMention(post.ChannelID)
 				}
 			}
+			m.rebuildTriageItems()
 		case domain.EventStatus:
 			m.updateUserStatus(msg.event.UserID, msg.event.Status)
 		case domain.EventError:
@@ -425,6 +449,9 @@ func (m Model) View() string {
 	if m.teamSwitcherOpen {
 		return m.renderTeamSwitcher(m.width, m.height)
 	}
+	if m.triageOpen {
+		return m.renderTriage(m.width, m.height)
+	}
 	if m.activityOpen {
 		return m.renderActivity(m.width, m.height)
 	}
@@ -450,6 +477,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.teamSwitcherOpen {
 		return m.handleTeamSwitcherKey(msg)
+	}
+	if m.triageOpen {
+		return m.handleTriageKey(msg)
+	}
+	if msg.String() == "u" && m.threadOpen && !m.threadFocusComposer {
+		m = m.openTriageOverlay()
+		return m, nil
 	}
 	if m.activityOpen {
 		return m.handleActivityKey(msg)
@@ -522,6 +556,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "i":
 		if m.focus != focusComposer {
 			m.infoOpen = true
+			return m, nil
+		}
+	case "u":
+		if m.focus != focusComposer {
+			m = m.openTriageOverlay()
 			return m, nil
 		}
 	case "f2", "ctrl+g":
@@ -692,6 +731,9 @@ func (m Model) switchTeam(index int) (tea.Model, tea.Cmd) {
 	m.loading = true
 	m.loadingOlder = false
 	m.hasOlder = true
+	m.triageOpen = false
+	m.triageSelected = 0
+	m.triageItems = nil
 	m.status = "loading scope…"
 	m.refreshViewport()
 	return m, m.loadCurrentScopeCmd()
@@ -783,6 +825,49 @@ func (m Model) handleActivityKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.recentEvents = nil
 		m.activitySelected = 0
 		m.status = "mention activity cleared"
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m Model) handleTriageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		m.cancel()
+		_ = m.backend.Close()
+		return m, tea.Quit
+	case "esc", "u":
+		m.triageOpen = false
+		return m, nil
+	case "up", "k", "N":
+		if m.triageSelected > 0 {
+			m.triageSelected--
+		}
+		return m, nil
+	case "down", "j", "n":
+		if m.triageSelected < len(m.triageItems)-1 {
+			m.triageSelected++
+		}
+		return m, nil
+	case "home":
+		m.triageSelected = 0
+		return m, nil
+	case "end":
+		if len(m.triageItems) > 0 {
+			m.triageSelected = len(m.triageItems) - 1
+		}
+		return m, nil
+	case "enter":
+		if m.triageSelected >= 0 && m.triageSelected < len(m.triageItems) {
+			return m.openTriageItem(m.triageItems[m.triageSelected])
+		}
+		return m, nil
+	case "d":
+		if m.dismissCurrentTriageItem() {
+			m.status = "triage item dismissed"
+		} else {
+			m.status = "nothing to dismiss"
+		}
 		return m, nil
 	}
 	return m, nil
@@ -1138,6 +1223,7 @@ func (m Model) openCurrentChannel() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.clearUnread(channelID)
+	m.rebuildTriageItems()
 	m.hasOlder = true
 	m.loadingOlder = false
 	if m.showCachedPosts(channelID) {
@@ -1647,9 +1733,100 @@ func (m *Model) markChannelRead(channelID string) {
 		if m.channels[i].ID == channelID {
 			m.channels[i].Unread = 0
 			m.channels[i].Mentions = 0
-			return
+			break
 		}
 	}
+	m.clearPostReadFlags(channelID)
+}
+
+func (m *Model) clearPostReadFlags(channelID string) {
+	for i := range m.posts {
+		if m.posts[i].ChannelID == channelID {
+			m.posts[i].Unread = false
+			m.posts[i].Mentioned = false
+			m.posts[i].ThreadUnread = false
+		}
+	}
+	if m.postsByChannel == nil {
+		return
+	}
+	posts := m.postsByChannel[channelID]
+	for i := range posts {
+		posts[i].Unread = false
+		posts[i].Mentioned = false
+		posts[i].ThreadUnread = false
+	}
+	m.postsByChannel[channelID] = posts
+}
+
+func (m *Model) clearThreadReadSignal(channelID, rootID string) {
+	if channelID == "" || rootID == "" {
+		return
+	}
+	unreadCleared := 0
+	mentionsCleared := 0
+	threadSignalCleared := false
+	countFromCurrentPosts := true
+	if m.postsByChannel != nil {
+		if posts, ok := m.postsByChannel[channelID]; ok {
+			countFromCurrentPosts = false
+			for i := range posts {
+				if postThreadRootID(posts[i]) != rootID {
+					continue
+				}
+				if posts[i].Unread {
+					unreadCleared++
+				}
+				if posts[i].Mentioned {
+					mentionsCleared++
+				}
+				if posts[i].ThreadUnread {
+					threadSignalCleared = true
+				}
+				posts[i].Unread = false
+				posts[i].Mentioned = false
+				posts[i].ThreadUnread = false
+			}
+			m.postsByChannel[channelID] = posts
+		}
+	}
+	for i := range m.posts {
+		if m.posts[i].ChannelID != channelID || postThreadRootID(m.posts[i]) != rootID {
+			continue
+		}
+		if countFromCurrentPosts {
+			if m.posts[i].Unread {
+				unreadCleared++
+			}
+			if m.posts[i].Mentioned {
+				mentionsCleared++
+			}
+			if m.posts[i].ThreadUnread {
+				threadSignalCleared = true
+			}
+		}
+		m.posts[i].Unread = false
+		m.posts[i].Mentioned = false
+		m.posts[i].ThreadUnread = false
+	}
+	if unreadCleared == 0 && threadSignalCleared {
+		unreadCleared = 1
+	}
+	for i := range m.channels {
+		if m.channels[i].ID != channelID {
+			continue
+		}
+		m.channels[i].Unread = max(0, m.channels[i].Unread-unreadCleared)
+		m.channels[i].Mentions = max(0, m.channels[i].Mentions-mentionsCleared)
+		return
+	}
+}
+
+func postThreadRootID(post domain.Post) string {
+	if post.RootID != "" {
+		return post.RootID
+	}
+	return post.ID
 }
 
 func (m *Model) markThreadUnread(channelID, rootID string) {
