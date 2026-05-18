@@ -587,25 +587,25 @@ func (m Model) renderThreadPosts(width int) string {
 			continue
 		}
 		grouped := hasPrevReply && shouldGroupTimelinePost(prevReply, post)
+		selected := idx == m.threadSelected && !m.threadFocusComposer
 		if !grouped {
 			user := sanitizeTerminal(post.Username)
 			if user == "" {
 				user = sanitizeTerminal(shortID(post.UserID))
 			}
+			header := accent.Render(user) + muted.Render("  "+formatTime(post.CreateAt))
 			if post.Unread || post.Mentioned || post.ThreadUnread {
-				b.WriteString(accent.Render("● "))
+				header = accent.Render("● ") + header
 			}
-			b.WriteString(accent.Render(user))
-			b.WriteString(muted.Render("  " + formatTime(post.CreateAt)))
 			if post.ThreadUnread {
-				b.WriteString(accent.Render("  ● new replies"))
+				header += accent.Render("  ● new replies")
 			}
+			b.WriteString(m.renderPostLine(header, selected))
 			b.WriteString("\n")
 		}
 		body := renderMarkdownMessage(post.Message, max(20, width-4))
 		for _, line := range strings.Split(body, "\n") {
-			b.WriteString("  ")
-			b.WriteString(line)
+			b.WriteString(m.renderPostLine(baseStyle.Render(line), selected))
 			b.WriteString("\n")
 		}
 		repliesWritten++

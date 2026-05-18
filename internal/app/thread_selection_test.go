@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	"band-tui/internal/domain"
@@ -45,5 +46,20 @@ func TestHandleThreadKeyMovesSelectedThreadPost(t *testing.T) {
 	got := updated.(Model)
 	if got.threadSelected != 0 {
 		t.Fatalf("threadSelected = %d", got.threadSelected)
+	}
+}
+
+func TestRenderThreadPostsMarksSelectedMessage(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.threadOpen = true
+	m.threadRootID = "root"
+	m.threadPosts = []domain.Post{
+		{ID: "root", ChannelID: "dev", Message: "root"},
+		{ID: "r1", ChannelID: "dev", RootID: "root", Message: "reply 1"},
+	}
+	m.threadSelected = 1
+	got := m.renderThreadPosts(80)
+	if !strings.Contains(got, "▌ ") {
+		t.Fatalf("selected thread message marker missing: %q", got)
 	}
 }
