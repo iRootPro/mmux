@@ -215,3 +215,25 @@ func TestFailedReactionToggleLeavesStateUnchanged(t *testing.T) {
 		t.Fatalf("status = %q", got.status)
 	}
 }
+
+func TestRenderPostShowsReactionBadges(t *testing.T) {
+	m := Model{
+		posts: []domain.Post{{ID: "p1", Username: "Alice", Message: "hello", Reactions: []domain.PostReaction{
+			{Name: "+1", Count: 2, Reacted: true},
+			{Name: "eyes", Count: 1},
+		}}},
+		selectedPost: -1,
+	}
+	got, _ := m.renderPosts()
+	if !strings.Contains(got, "👍 2") || !strings.Contains(got, "👀 1") {
+		t.Fatalf("rendered posts missing reactions: %q", got)
+	}
+}
+
+func TestHelpTextMentionsReactionKey(t *testing.T) {
+	m := Model{}
+	got := m.helpText()
+	if !strings.Contains(got, "R") || !strings.Contains(strings.ToLower(got), "reaction") {
+		t.Fatalf("help text missing reaction key: %q", got)
+	}
+}

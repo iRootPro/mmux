@@ -239,6 +239,46 @@ func (m Model) renderReactionPicker(width, height int) string {
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
 }
 
+func renderReactionBadges(post domain.Post) string {
+	if len(post.Reactions) == 0 {
+		return ""
+	}
+	var parts []string
+	seen := map[string]struct{}{}
+	for _, option := range defaultReactions {
+		for _, reaction := range post.Reactions {
+			if reaction.Name != option.Name || reaction.Count <= 0 {
+				continue
+			}
+			label := option.Glyph + " " + fmt.Sprintf("%d", reaction.Count)
+			if reaction.Reacted {
+				label = pillStyle.Render(label)
+			} else {
+				label = muted.Render(label)
+			}
+			parts = append(parts, label)
+			seen[reaction.Name] = struct{}{}
+			break
+		}
+	}
+	for _, reaction := range post.Reactions {
+		if reaction.Count <= 0 {
+			continue
+		}
+		if _, ok := seen[reaction.Name]; ok {
+			continue
+		}
+		label := reaction.Name + " " + fmt.Sprintf("%d", reaction.Count)
+		if reaction.Reacted {
+			label = pillStyle.Render(label)
+		} else {
+			label = muted.Render(label)
+		}
+		parts = append(parts, label)
+	}
+	return strings.Join(parts, "  ")
+}
+
 func (m Model) renderTriage(width, height int) string {
 	boxWidth := min(max(72, width/2), max(72, width-8))
 	visibleItems := min(max(1, len(m.triageItems)), 12)
@@ -1382,6 +1422,9 @@ func (m Model) renderPosts() (string, []int) {
 		for _, line := range strings.Split(body, "\n") {
 			writeLine(m.renderPostLine(baseStyle.Render(line), selected))
 		}
+		if badges := renderReactionBadges(p); badges != "" {
+			writeLine(m.renderPostLine(badges, selected))
+		}
 		if i < len(m.posts)-1 && !shouldGroupTimelinePost(p, m.posts[i+1]) {
 			writeBlank()
 		}
@@ -1436,6 +1479,7 @@ func (m Model) helpText() string {
   e                 edit selected own message
   D                 delete selected own message (press twice)
   t                 open thread for selected message
+  R                 open reaction picker for selected message
   ctrl+r            reload current channel or reconnect when offline
   ?                 toggle help
   q / ctrl+c        quit
