@@ -274,7 +274,7 @@ func TestSuccessfulEditClearsEditModeAndUpdatesPost(t *testing.T) {
 	m.threadPosts = []domain.Post{{ID: "p1", ChannelID: "c1", UserID: "me", Username: "You", Message: "old"}}
 	m.composer.SetValue("edited")
 
-	updated, _ := m.Update(postUpdatedMsg{post: domain.Post{ID: "p1", ChannelID: "c1", UserID: "me", Username: "You", Message: "edited"}})
+	updated, _ := m.Update(postUpdatedMsg{postID: "p1", post: domain.Post{ID: "p1", ChannelID: "c1", UserID: "me", Username: "You", Message: "edited"}})
 	got := updated.(Model)
 	if got.editingPostID != "" {
 		t.Fatalf("editingPostID = %q", got.editingPostID)
@@ -292,7 +292,7 @@ func TestFailedEditKeepsComposerTextAndEditMode(t *testing.T) {
 	m.editingPostID = "p1"
 	m.composer.SetValue("edited")
 
-	updated, _ := m.Update(postUpdatedMsg{err: assertErr{}})
+	updated, _ := m.Update(postUpdatedMsg{postID: "p1", err: assertErr{}})
 	got := updated.(Model)
 	if got.editingPostID != "p1" {
 		t.Fatalf("editingPostID = %q", got.editingPostID)
@@ -451,5 +451,105 @@ func TestHelpTextMentionsEditAndDeleteKeys(t *testing.T) {
 	}
 	if !strings.Contains(got, "  D                 delete selected own message (press twice)") {
 		t.Fatalf("help text missing delete row: %q", got)
+	}
+}
+
+func TestSuccessfulStaleEditDoesNotClearNewEditSession(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.editingPostID = "p2"
+	m.composer.SetValue("editing p2")
+
+	updated, _ := m.Update(postUpdatedMsg{postID: "p1", post: domain.Post{ID: "p1", ChannelID: "c1", Message: "edited p1"}})
+	got := updated.(Model)
+	if got.editingPostID != "p2" {
+		t.Fatalf("stale edit cleared active edit session: %q", got.editingPostID)
+	}
+	if got.composer.Value() != "editing p2" {
+		t.Fatalf("stale edit cleared composer: %q", got.composer.Value())
+	}
+}
+
+func TestOpenCurrentChannelClearsEditMode(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.channels = []domain.Channel{{ID: "c1", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.editingPostID = "p1"
+	m.composer.SetValue("editing text")
+
+	updated, _ := m.openCurrentChannel()
+	got := updated.(Model)
+	if got.editingPostID != "" {
+		t.Fatalf("editingPostID not cleared on channel open: %q", got.editingPostID)
+	}
+}
+
+func TestDeleteConfirmationClearsOnFocusSwitch(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.focus = focusTimeline
+	m.pendingDeletePostID = "p1"
+
+	updated, _ := m.handleKey(actionKey("tab"))
+	got := updated.(Model)
+	if got.pendingDeletePostID != "" {
+		t.Fatalf("pending delete not cleared on focus switch: %q", got.pendingDeletePostID)
+	}
+}
+
+func TestSuccessfulEditPreservesLocalUnreadThreadFlags(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.editingPostID = "p1"
+	m.posts = []domain.Post{{ID: "p1", ChannelID: "c1", UserID: "me", Message: "old", Unread: true, Mentioned: true, ThreadUnread: true, ReplyCount: 7}}
+
+	updated, _ := m.Update(postUpdatedMsg{postID: "p1", post: domain.Post{ID: "p1", ChannelID: "c1", UserID: "me", Message: "edited", UpdateAt: 9}})
+	got := updated.(Model)
+	post := got.posts[0]
+	if !post.Unread || !post.Mentioned || !post.ThreadUnread || post.ReplyCount != 7 {
+		t.Fatalf("local importance flags not preserved: %#v", post)
+	}
+}
+
+func TestSuccessfulEditRestoresSuspendedDraft(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.session = &domain.Session{User: domain.User{ID: "me"}}
+	m.channels = []domain.Channel{{ID: "c1", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.loadDraft(channelDraftKey("c1"))
+	m.composer.SetValue("draft text")
+	m.posts = []domain.Post{{ID: "p1", ChannelID: "c1", UserID: "me", Username: "You", Message: "old"}}
+	m.selectedPost = 0
+
+	updated, _ := m.editSelectedPost()
+	m = updated.(Model)
+	updated, _ = m.Update(postUpdatedMsg{postID: "p1", post: domain.Post{ID: "p1", ChannelID: "c1", UserID: "me", Username: "You", Message: "edited"}})
+	got := updated.(Model)
+	if got.composer.Value() != "draft text" {
+		t.Fatalf("suspended draft not restored: %q", got.composer.Value())
+	}
+	if got.activeDraftKey != channelDraftKey("c1") {
+		t.Fatalf("activeDraftKey = %q", got.activeDraftKey)
+	}
+}
+
+func TestChannelOpenDuringEditRestoresDraftInsteadOfSavingEditedText(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.session = &domain.Session{User: domain.User{ID: "me"}}
+	m.channels = []domain.Channel{{ID: "c1", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	key := channelDraftKey("c1")
+	m.loadDraft(key)
+	m.composer.SetValue("draft text")
+	m.posts = []domain.Post{{ID: "p1", ChannelID: "c1", UserID: "me", Username: "You", Message: "old"}}
+	m.selectedPost = 0
+
+	updated, _ := m.editSelectedPost()
+	m = updated.(Model)
+	m.composer.SetValue("edited text")
+	updated, _ = m.openCurrentChannel()
+	got := updated.(Model)
+	if got.editingPostID != "" {
+		t.Fatalf("editingPostID not cleared: %q", got.editingPostID)
+	}
+	if got.composer.Value() != "draft text" {
+		t.Fatalf("draft not restored on navigation: %q", got.composer.Value())
 	}
 }

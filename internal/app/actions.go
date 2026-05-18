@@ -24,6 +24,8 @@ func (m Model) openSelectedThread() (tea.Model, tea.Cmd) {
 	if channelID == "" {
 		channelID = m.currentChannelID()
 	}
+	m.clearEditingState()
+	m.clearPendingDelete()
 	m.saveActiveDraft()
 	m.applyThreadRead(channelID, rootID)
 	m.rebuildTriageItems()
@@ -234,6 +236,9 @@ func (m Model) editSelectedPost() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.pendingDeletePostID = ""
+	m.suspendedDraftKey = m.activeDraftKey
+	m.suspendedDraftValue = m.composer.Value()
+	m.activeDraftKey = ""
 	m.composer.SetValue(post.Message)
 	m.editingPostID = post.ID
 	m.focus = focusComposer

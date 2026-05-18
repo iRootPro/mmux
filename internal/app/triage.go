@@ -222,6 +222,8 @@ func (m Model) openTriageThread(item triageItem) (tea.Model, tea.Cmd) {
 	if channelID == "" {
 		channelID = m.currentChannelID()
 	}
+	m.clearEditingState()
+	m.clearPendingDelete()
 	m.saveActiveDraft()
 	m.loadDraft(threadDraftKey(channelID, rootID))
 	m.applyThreadRead(channelID, rootID)

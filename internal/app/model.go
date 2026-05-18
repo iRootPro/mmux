@@ -82,6 +82,8 @@ type Model struct {
 	connectionMessage    string
 	editingPostID        string
 	pendingDeletePostID  string
+	suspendedDraftKey    string
+	suspendedDraftValue  string
 	infoOpen             bool
 	teamSwitcherOpen     bool
 	teamSwitcherSelected int
@@ -368,11 +370,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.err = ""
-		m.replacePost(msg.post)
-		m.replaceCachedPost(msg.post)
-		m.replaceThreadPost(msg.post)
-		m.editingPostID = ""
-		m.composer.Reset()
+		m.mergeUpdatedPost(msg.post)
+		m.mergeUpdatedCachedPost(msg.post)
+		m.mergeUpdatedThreadPost(msg.post)
+		if msg.postID == m.editingPostID {
+			m.clearEditingState()
+		}
 		m.status = "message updated"
 		m.refreshViewport()
 		m.refreshThreadViewport()
@@ -583,6 +586,9 @@ func (m Model) View() string {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.pendingDeletePostID != "" && !(m.focus == focusTimeline && msg.String() == "D") {
+		m.clearPendingDelete()
+	}
 	if m.infoOpen {
 		return m.handleInfoKey(msg)
 	}
@@ -853,7 +859,9 @@ func (m Model) switchTeam(index int) (tea.Model, tea.Cmd) {
 	if index == m.selectedTeam {
 		return m, nil
 	}
+	m.clearEditingState()
 	m.saveActiveDraft()
+	m.clearPendingDelete()
 	m.selectedTeam = index
 	m.selectedChannel = 0
 	m.selectedPost = -1
@@ -1371,6 +1379,8 @@ func (m Model) openCurrentChannel() (tea.Model, tea.Cmd) {
 	if channelID == "" {
 		return m, nil
 	}
+	m.clearEditingState()
+	m.clearPendingDelete()
 	m.switchDraft(channelDraftKey(channelID))
 	if channelID == m.pendingJumpChannelID && m.pendingJumpThreadID != "" {
 		m.rebuildTriageItems()
@@ -1571,13 +1581,32 @@ func (m *Model) refreshViewport() {
 }
 
 func (m *Model) nextFocus() {
+	m.clearPendingDelete()
 	m.focus = (m.focus + 1) % 3
 	m.applyFocus()
 }
 
 func (m *Model) prevFocus() {
+	m.clearPendingDelete()
 	m.focus = (m.focus + 2) % 3
 	m.applyFocus()
+}
+
+func (m *Model) clearPendingDelete() {
+	m.pendingDeletePostID = ""
+}
+
+func (m *Model) clearEditingState() {
+	if m.editingPostID == "" {
+		return
+	}
+	m.editingPostID = ""
+	m.activeDraftKey = m.suspendedDraftKey
+	if m.composerReady() {
+		m.composer.SetValue(m.suspendedDraftValue)
+	}
+	m.suspendedDraftKey = ""
+	m.suspendedDraftValue = ""
 }
 
 func (m *Model) applyFocus() {
@@ -1761,36 +1790,61 @@ func (m *Model) addPost(post domain.Post) {
 	m.addPostToCache(post.ChannelID, post)
 }
 
-func (m *Model) replacePost(post domain.Post) {
+func mergeEditedPost(existing, updated domain.Post) domain.Post {
+	merged := existing
+	if updated.ChannelID != "" {
+		merged.ChannelID = updated.ChannelID
+	}
+	if updated.RootID != "" || existing.RootID == "" {
+		merged.RootID = updated.RootID
+	}
+	if updated.UserID != "" {
+		merged.UserID = updated.UserID
+	}
+	if updated.Username != "" {
+		merged.Username = updated.Username
+	}
+	merged.Message = updated.Message
+	if updated.CreateAt != 0 {
+		merged.CreateAt = updated.CreateAt
+	}
+	if updated.UpdateAt != 0 {
+		merged.UpdateAt = updated.UpdateAt
+	}
+	return merged
+}
+
+func (m *Model) mergeUpdatedPost(post domain.Post) {
 	post = m.normalizePost(post)
 	for i := range m.posts {
 		if m.posts[i].ID == post.ID {
-			m.posts[i] = post
+			m.posts[i] = mergeEditedPost(m.posts[i], post)
 			return
 		}
 	}
 }
 
-func (m *Model) replaceCachedPost(post domain.Post) {
+func (m *Model) mergeUpdatedCachedPost(post domain.Post) {
 	post = m.normalizePost(post)
 	if m.postsByChannel == nil {
 		return
 	}
-	posts := m.postsByChannel[post.ChannelID]
-	for i := range posts {
-		if posts[i].ID == post.ID {
-			posts[i] = post
-			m.postsByChannel[post.ChannelID] = posts
-			return
+	for channelID, posts := range m.postsByChannel {
+		for i := range posts {
+			if posts[i].ID == post.ID {
+				posts[i] = mergeEditedPost(posts[i], post)
+				m.postsByChannel[channelID] = posts
+				return
+			}
 		}
 	}
 }
 
-func (m *Model) replaceThreadPost(post domain.Post) {
+func (m *Model) mergeUpdatedThreadPost(post domain.Post) {
 	post = m.normalizePost(post)
 	for i := range m.threadPosts {
 		if m.threadPosts[i].ID == post.ID {
-			m.threadPosts[i] = post
+			m.threadPosts[i] = mergeEditedPost(m.threadPosts[i], post)
 			return
 		}
 	}
