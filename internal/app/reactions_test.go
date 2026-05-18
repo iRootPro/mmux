@@ -272,3 +272,56 @@ func TestReactionPickerTargetsSelectedThreadPost(t *testing.T) {
 		t.Fatalf("selected reaction target = %#v ok=%v", target, ok)
 	}
 }
+
+func TestThreadReactionToggleUpdatesThreadAndCachedCopies(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.reactionPickerOpen = true
+	m.reactionTargetKind = reactionTargetThread
+	m.reactionTargetPostID = "r1"
+	m.threadPosts = []domain.Post{
+		{ID: "root", ChannelID: "c1", Message: "root"},
+		{ID: "r1", ChannelID: "c1", RootID: "root", Message: "reply"},
+	}
+	m.postsByChannel = map[string][]domain.Post{"c1": {
+		{ID: "root", ChannelID: "c1", Message: "root"},
+		{ID: "r1", ChannelID: "c1", RootID: "root", Message: "reply"},
+	}}
+
+	updated, _ := m.Update(reactionToggledMsg{post: domain.Post{ID: "r1", ChannelID: "c1", RootID: "root", Message: "reply", Reactions: []domain.PostReaction{{Name: "+1", Count: 1, Reacted: true}}}, added: true})
+	got := updated.(Model)
+	if !got.threadPosts[1].Reactions[0].Reacted || !got.postsByChannel["c1"][1].Reactions[0].Reacted {
+		t.Fatalf("thread reaction not propagated: %#v %#v", got.threadPosts, got.postsByChannel["c1"])
+	}
+}
+
+func TestThreadReactionToggleUpdatesTimelineWhenRootAlsoVisible(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.reactionPickerOpen = true
+	m.reactionTargetKind = reactionTargetThread
+	m.reactionTargetPostID = "root"
+	m.threadPosts = []domain.Post{{ID: "root", ChannelID: "c1", Message: "root"}}
+	m.posts = []domain.Post{{ID: "root", ChannelID: "c1", Message: "root"}}
+
+	updated, _ := m.Update(reactionToggledMsg{post: domain.Post{ID: "root", ChannelID: "c1", Message: "root", Reactions: []domain.PostReaction{{Name: "+1", Count: 1, Reacted: true}}}, added: true})
+	got := updated.(Model)
+	if !got.threadPosts[0].Reactions[0].Reacted || !got.posts[0].Reactions[0].Reacted {
+		t.Fatalf("root reaction not mirrored: %#v %#v", got.threadPosts, got.posts)
+	}
+}
+
+func TestFailedThreadReactionLeavesStateUnchanged(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.reactionPickerOpen = true
+	m.reactionTargetKind = reactionTargetThread
+	m.reactionTargetPostID = "r1"
+	m.threadPosts = []domain.Post{{ID: "r1", ChannelID: "c1", RootID: "root", Message: "reply"}}
+
+	updated, _ := m.Update(reactionToggledMsg{err: assertErr{}})
+	got := updated.(Model)
+	if len(got.threadPosts[0].Reactions) != 0 {
+		t.Fatalf("thread state changed on failure: %#v", got.threadPosts[0].Reactions)
+	}
+	if got.reactionPickerOpen {
+		t.Fatal("picker should close on failure")
+	}
+}
