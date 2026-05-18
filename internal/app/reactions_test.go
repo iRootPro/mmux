@@ -1,9 +1,11 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	"band-tui/internal/domain"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestReactionStateFindsExistingReaction(t *testing.T) {
@@ -38,5 +40,35 @@ func TestMergeRemovedReactionDropsZeroCountReaction(t *testing.T) {
 	updated := mergeRemovedReaction(post, "+1")
 	if len(updated.Reactions) != 0 {
 		t.Fatalf("reactions = %#v", updated.Reactions)
+	}
+}
+
+func TestHandleTimelineKeyROpensReactionPicker(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.focus = focusTimeline
+	m.posts = []domain.Post{{ID: "p1", Message: "hello"}}
+	m.selectedPost = 0
+
+	updated, _ := m.handleKey(actionKey("R"))
+	got := updated.(Model)
+	if !got.reactionPickerOpen {
+		t.Fatal("reaction picker should open")
+	}
+}
+
+func TestHandleReactionPickerEscCloses(t *testing.T) {
+	m := Model{reactionPickerOpen: true}
+	updated, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	got := updated.(Model)
+	if got.reactionPickerOpen {
+		t.Fatal("reaction picker should close")
+	}
+}
+
+func TestRenderReactionPickerShowsChoices(t *testing.T) {
+	m := Model{reactionPickerOpen: true}
+	got := m.renderReactionPicker(120, 30)
+	if !strings.Contains(got, "👍") || !strings.Contains(got, "👀") || !strings.Contains(got, "✅") {
+		t.Fatalf("picker render = %q", got)
 	}
 }

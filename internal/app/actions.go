@@ -11,6 +11,19 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+type reactionOption struct {
+	Name  string
+	Glyph string
+}
+
+var defaultReactions = []reactionOption{
+	{Name: "+1", Glyph: "👍"},
+	{Name: "eyes", Glyph: "👀"},
+	{Name: "white_check_mark", Glyph: "✅"},
+	{Name: "heart", Glyph: "❤️"},
+	{Name: "tada", Glyph: "🎉"},
+}
+
 func (m Model) openSelectedThread() (tea.Model, tea.Cmd) {
 	idx, ok := m.selectedPostIndex()
 	if !ok {
@@ -265,6 +278,16 @@ func (m Model) deleteSelectedPost() (tea.Model, tea.Cmd) {
 	m.pendingDeletePostID = ""
 	m.status = "deleting message…"
 	return m, deletePostCmd(m.ctx, m.backend, post.ID)
+}
+
+func (m Model) openReactionPicker() (tea.Model, tea.Cmd) {
+	if _, ok := m.selectedPostIndex(); !ok {
+		return m, nil
+	}
+	m.reactionPickerOpen = true
+	m.reactionPickerSelected = 0
+	m.status = "pick a reaction"
+	return m, nil
 }
 
 func formatQuotedReply(post domain.Post) string {

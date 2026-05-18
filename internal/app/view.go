@@ -218,6 +218,27 @@ func (m Model) renderActivity(width, height int) string {
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Top, box)
 }
 
+func (m Model) renderReactionPicker(width, height int) string {
+	boxWidth := min(max(34, width/4), max(34, width-8))
+	boxHeight := min(max(8, len(defaultReactions)+4), max(8, height-4))
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("Reactions"))
+	b.WriteString(muted.Render("  enter toggle · esc close"))
+	b.WriteString("\n\n")
+	for i, reaction := range defaultReactions {
+		line := reaction.Glyph + "  " + reaction.Name
+		if i == m.reactionPickerSelected {
+			line = pillStyle.Width(boxWidth - 4).Render(truncate(line, boxWidth-6))
+		} else {
+			line = muted.Render(truncate(line, boxWidth-4))
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	box := boxStyle.Width(boxWidth).Height(boxHeight).Render(b.String())
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
 func (m Model) renderTriage(width, height int) string {
 	boxWidth := min(max(72, width/2), max(72, width-8))
 	visibleItems := min(max(1, len(m.triageItems)), 12)

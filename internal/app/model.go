@@ -55,41 +55,43 @@ type Model struct {
 	threadViewport      viewport.Model
 	threadFocusComposer bool
 
-	selectedTeam         int
-	selectedChannel      int
-	selectedPost         int
-	focus                focusPane
-	channelFilter        string
-	filtering            bool
-	favoriteChannels     map[string]bool
-	collapsedSections    map[string]bool
-	switcherOpen         bool
-	switcherQuery        string
-	switcherSelected     int
-	activityOpen         bool
-	activitySelected     int
-	triageOpen           bool
-	triageSelected       int
-	triageItems          []triageItem
-	dismissedTriage      map[string]struct{}
-	drafts               map[string]string
-	activeDraftKey       string
-	pendingSends         map[string]pendingSend
-	nextPendingSendID    int64
-	connectionState      domain.ConnectionState
-	connectionAttempt    int
-	connectionRetryIn    time.Duration
-	connectionMessage    string
-	editingPostID        string
-	pendingDeletePostID  string
-	suspendedDraftKey    string
-	suspendedDraftValue  string
-	infoOpen             bool
-	teamSwitcherOpen     bool
-	teamSwitcherSelected int
-	pendingJumpChannelID string
-	pendingJumpPostID    string
-	pendingJumpThreadID  string
+	selectedTeam           int
+	selectedChannel        int
+	selectedPost           int
+	focus                  focusPane
+	channelFilter          string
+	filtering              bool
+	favoriteChannels       map[string]bool
+	collapsedSections      map[string]bool
+	switcherOpen           bool
+	switcherQuery          string
+	switcherSelected       int
+	activityOpen           bool
+	activitySelected       int
+	triageOpen             bool
+	reactionPickerOpen     bool
+	reactionPickerSelected int
+	triageSelected         int
+	triageItems            []triageItem
+	dismissedTriage        map[string]struct{}
+	drafts                 map[string]string
+	activeDraftKey         string
+	pendingSends           map[string]pendingSend
+	nextPendingSendID      int64
+	connectionState        domain.ConnectionState
+	connectionAttempt      int
+	connectionRetryIn      time.Duration
+	connectionMessage      string
+	editingPostID          string
+	pendingDeletePostID    string
+	suspendedDraftKey      string
+	suspendedDraftValue    string
+	infoOpen               bool
+	teamSwitcherOpen       bool
+	teamSwitcherSelected   int
+	pendingJumpChannelID   string
+	pendingJumpPostID      string
+	pendingJumpThreadID    string
 
 	viewport viewport.Model
 	composer textarea.Model
@@ -563,6 +565,9 @@ func (m Model) View() string {
 	if m.teamSwitcherOpen {
 		return m.renderTeamSwitcher(m.width, m.height)
 	}
+	if m.reactionPickerOpen {
+		return m.renderReactionPicker(m.width, m.height)
+	}
 	if m.triageOpen {
 		return m.renderTriage(m.width, m.height)
 	}
@@ -594,6 +599,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.teamSwitcherOpen {
 		return m.handleTeamSwitcherKey(msg)
+	}
+	if m.reactionPickerOpen {
+		return m.handleReactionPickerKey(msg)
 	}
 	if m.triageOpen {
 		return m.handleTriageKey(msg)
@@ -780,6 +788,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.editSelectedPost()
 		case "D":
 			return m.deleteSelectedPost()
+		case "R":
+			return m.openReactionPicker()
 		}
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
@@ -1020,6 +1030,31 @@ func (m Model) handleTriageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = "nothing to dismiss"
 		}
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m Model) handleReactionPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		m.cancel()
+		_ = m.backend.Close()
+		return m, tea.Quit
+	case "esc", "R":
+		m.reactionPickerOpen = false
+		return m, nil
+	case "up", "k":
+		if m.reactionPickerSelected > 0 {
+			m.reactionPickerSelected--
+		}
+		return m, nil
+	case "down", "j":
+		if m.reactionPickerSelected < len(defaultReactions)-1 {
+			m.reactionPickerSelected++
+		}
+		return m, nil
+	case "enter":
 		return m, nil
 	}
 	return m, nil
