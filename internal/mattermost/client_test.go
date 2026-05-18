@@ -64,7 +64,7 @@ func TestClientConnectLoadAndSend(t *testing.T) {
 			Order: []string{"r2", "p2", "p1"},
 			Posts: map[string]mmPost{
 				"p1": {ID: "p1", ChannelID: "c1", UserID: "u1", Message: "one", CreateAt: 1},
-				"p2": {ID: "p2", ChannelID: "c1", UserID: "u2", Message: "two", CreateAt: 2},
+				"p2": {ID: "p2", ChannelID: "c1", UserID: "u2", Message: "two", CreateAt: 2, Metadata: &mmPostMetadata{Reactions: []mmReaction{{UserID: "u1", PostID: "p2", EmojiName: "+1"}}}},
 				"r2": {ID: "r2", ChannelID: "c1", RootID: "p1", UserID: "u2", Message: "thread reply", CreateAt: 3},
 			},
 		})
@@ -74,7 +74,7 @@ func TestClientConnectLoadAndSend(t *testing.T) {
 			Order: []string{"r2", "r1", "p1"},
 			Posts: map[string]mmPost{
 				"p1": {ID: "p1", ChannelID: "c1", UserID: "u1", Message: "one", CreateAt: 1},
-				"r1": {ID: "r1", ChannelID: "c1", RootID: "p1", UserID: "u2", Message: "reply 1", CreateAt: 2},
+				"r1": {ID: "r1", ChannelID: "c1", RootID: "p1", UserID: "u2", Message: "reply 1", CreateAt: 2, Metadata: &mmPostMetadata{Reactions: []mmReaction{{UserID: "u1", PostID: "r1", EmojiName: "heart"}}}},
 				"r2": {ID: "r2", ChannelID: "c1", RootID: "p1", UserID: "u2", Message: "reply 2", CreateAt: 3},
 			},
 		})
@@ -129,6 +129,9 @@ func TestClientConnectLoadAndSend(t *testing.T) {
 	if len(posts) != 2 || posts[0].ID != "p1" || posts[0].ReplyCount != 1 || !posts[0].ThreadUnread || posts[1].ID != "p2" || posts[1].Unread {
 		t.Fatalf("bad posts order/reply count: %#v", posts)
 	}
+	if len(posts[1].Reactions) != 1 || posts[1].Reactions[0].Name != "+1" || !posts[1].Reactions[0].Reacted || posts[1].Reactions[0].Count != 1 {
+		t.Fatalf("bad post reactions: %#v", posts[1].Reactions)
+	}
 	if posts[0].Username != "Sasha Neupokoev" || posts[1].Username != "Alice Smith" {
 		t.Fatalf("bad usernames: %#v", posts)
 	}
@@ -145,6 +148,9 @@ func TestClientConnectLoadAndSend(t *testing.T) {
 	}
 	if len(thread) != 3 || thread[0].ID != "p1" || thread[1].ID != "r1" || thread[2].ID != "r2" || thread[1].Username != "Alice Smith" || thread[2].Unread != true {
 		t.Fatalf("bad thread: %#v", thread)
+	}
+	if len(thread[1].Reactions) != 1 || thread[1].Reactions[0].Name != "heart" || !thread[1].Reactions[0].Reacted || thread[1].Reactions[0].Count != 1 {
+		t.Fatalf("bad thread reactions: %#v", thread[1].Reactions)
 	}
 	if err := client.ViewChannel(context.Background(), "c1"); err != nil {
 		t.Fatal(err)

@@ -241,7 +241,7 @@ func (c *Client) loadPosts(ctx context.Context, channelID, beforePostID string, 
 			}
 			continue
 		}
-		post := p.toDomain(channelID)
+		post := c.postToDomain(p, channelID)
 		if lastViewedAt > 0 && post.CreateAt > lastViewedAt {
 			post.Unread = true
 		}
@@ -293,7 +293,7 @@ func (c *Client) LoadThread(ctx context.Context, postID string) ([]domain.Post, 
 	posts := make([]domain.Post, 0, len(list.Order))
 	for _, id := range list.Order {
 		if p, ok := list.Posts[id]; ok && p.DeleteAt == 0 {
-			post := p.toDomain(p.ChannelID)
+			post := c.postToDomain(p, p.ChannelID)
 			if lastViewedAt := c.channelLastViewedAt(post.ChannelID); lastViewedAt > 0 && post.CreateAt > lastViewedAt {
 				post.Unread = true
 			}
@@ -331,8 +331,7 @@ func (c *Client) UpdatePost(ctx context.Context, postID, message string) (domain
 	if err := c.do(ctx, http.MethodPut, path, body, &post); err != nil {
 		return domain.Post{}, fmt.Errorf("update post: %w", err)
 	}
-	out := post.toDomain("")
-	out.Username = c.usernameFor(out.UserID)
+	out := c.postToDomain(post, "")
 	return out, nil
 }
 
@@ -385,8 +384,7 @@ func (c *Client) sendPost(ctx context.Context, channelID, rootID, message string
 	if err := c.do(ctx, http.MethodPost, "/api/v4/posts", body, &post); err != nil {
 		return domain.Post{}, fmt.Errorf("send post: %w", err)
 	}
-	out := post.toDomain(channelID)
-	out.Username = c.usernameFor(out.UserID)
+	out := c.postToDomain(post, channelID)
 	return out, nil
 }
 
@@ -420,10 +418,15 @@ func (c *Client) loadPostByID(ctx context.Context, postID string) (domain.Post, 
 	if err := c.do(ctx, http.MethodGet, "/api/v4/posts/"+url.PathEscape(postID), nil, &post); err != nil {
 		return domain.Post{}, fmt.Errorf("get post: %w", err)
 	}
-	out := post.toDomain(post.ChannelID)
+	out := c.postToDomain(post, post.ChannelID)
+	return out, nil
+}
+
+func (c *Client) postToDomain(post mmPost, fallbackChannelID string) domain.Post {
+	out := post.toDomain(fallbackChannelID)
 	out.Username = c.usernameFor(out.UserID)
 	out.Reactions = c.reactionsToDomain(post.Metadata)
-	return out, nil
+	return out
 }
 
 func (c *Client) reactionsToDomain(metadata *mmPostMetadata) []domain.PostReaction {
