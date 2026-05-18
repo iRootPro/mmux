@@ -52,6 +52,7 @@ type Model struct {
 	threadRootID        string
 	threadPosts         []domain.Post
 	threadLoading       bool
+	threadSelected      int
 	threadViewport      viewport.Model
 	threadFocusComposer bool
 
@@ -147,6 +148,7 @@ func New(backend domain.Backend, cfg config.Config, mockFallback bool) Model {
 		threadViewport:    threadVP,
 		composer:          composer,
 		postsByChannel:    map[string][]domain.Post{},
+		threadSelected:    -1,
 		selectedPost:      -1,
 		favoriteChannels:  favorites,
 		collapsedSections: map[string]bool{},
@@ -1080,6 +1082,31 @@ func (m Model) handleReactionPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *Model) clampThreadSelection() {
+	if len(m.threadPosts) == 0 {
+		m.threadSelected = -1
+		return
+	}
+	if m.threadSelected < 0 || m.threadSelected >= len(m.threadPosts) {
+		m.defaultThreadSelection()
+	}
+}
+
+func (m *Model) defaultThreadSelection() {
+	if len(m.threadPosts) == 0 {
+		m.threadSelected = -1
+		return
+	}
+	m.threadSelected = len(m.threadPosts) - 1
+}
+
+func (m Model) selectedThreadPost() (domain.Post, bool) {
+	if m.threadSelected < 0 || m.threadSelected >= len(m.threadPosts) {
+		return domain.Post{}, false
+	}
+	return m.threadPosts[m.threadSelected], true
+}
+
 func (m Model) handleThreadKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
@@ -1091,6 +1118,7 @@ func (m Model) handleThreadKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.threadOpen = false
 		m.threadRootID = ""
 		m.threadPosts = nil
+		m.threadSelected = -1
 		m.loadDraft(channelDraftKey(m.currentChannelID()))
 		m.resize()
 		m.refreshViewport()
@@ -1104,10 +1132,14 @@ func (m Model) handleThreadKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if !m.threadFocusComposer {
 		switch msg.String() {
 		case "up", "k":
-			m.threadViewport.ScrollUp(1)
+			if m.threadSelected > 0 {
+				m.threadSelected--
+			}
 			return m, nil
 		case "down", "j":
-			m.threadViewport.ScrollDown(1)
+			if m.threadSelected < len(m.threadPosts)-1 {
+				m.threadSelected++
+			}
 			return m, nil
 		case "pgup":
 			m.threadViewport.PageUp()
@@ -1116,10 +1148,14 @@ func (m Model) handleThreadKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.threadViewport.PageDown()
 			return m, nil
 		case "home":
-			m.threadViewport.GotoTop()
+			if len(m.threadPosts) > 0 {
+				m.threadSelected = 0
+			}
 			return m, nil
 		case "end":
-			m.threadViewport.GotoBottom()
+			if len(m.threadPosts) > 0 {
+				m.threadSelected = len(m.threadPosts) - 1
+			}
 			return m, nil
 		}
 		var cmd tea.Cmd
