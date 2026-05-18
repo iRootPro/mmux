@@ -306,6 +306,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.completePendingSend(msg.pendingID, msg.draftKey)
+		if msg.post.ID == "" {
+			return m, nil
+		}
 		if msg.rootID != m.threadRootID {
 			return m, nil
 		}
@@ -328,6 +331,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.completePendingSend(msg.pendingID, msg.draftKey)
+		if msg.post.ID == "" {
+			return m, nil
+		}
 		if msg.channelID != m.currentChannelID() {
 			return m, nil
 		}
@@ -402,6 +408,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.rebuildTriageItems()
+		case domain.EventState:
+			m.status = connectionEventStatus(msg.event)
+			if msg.event.Err != nil {
+				m.err = msg.event.Err.Error()
+			} else if msg.event.State == domain.ConnectionConnected {
+				m.err = ""
+			}
 		case domain.EventStatus:
 			m.updateUserStatus(msg.event.UserID, msg.event.Status)
 		case domain.EventError:
@@ -449,6 +462,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
+}
+
+func connectionEventStatus(ev domain.Event) string {
+	switch ev.State {
+	case domain.ConnectionConnecting:
+		return "connecting…"
+	case domain.ConnectionConnected:
+		return "connected"
+	case domain.ConnectionReconnecting:
+		if ev.RetryIn > 0 {
+			return fmt.Sprintf("reconnecting in %s", ev.RetryIn.Round(time.Second))
+		}
+		return "reconnecting…"
+	case domain.ConnectionOffline:
+		if strings.TrimSpace(ev.Message) != "" {
+			return "offline · " + strings.TrimSpace(ev.Message)
+		}
+		return "offline"
+	case domain.ConnectionAuthExpired:
+		if strings.TrimSpace(ev.Message) != "" {
+			return "auth expired · " + strings.TrimSpace(ev.Message)
+		}
+		return "auth expired"
+	default:
+		if strings.TrimSpace(ev.Message) != "" {
+			return strings.TrimSpace(ev.Message)
+		}
+		return "connection state changed"
+	}
 }
 
 func (m Model) View() string {

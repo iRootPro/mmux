@@ -15,6 +15,7 @@ type Backend struct {
 	mu       sync.Mutex
 	channels []domain.Channel
 	posts    map[string][]domain.Post
+	watchers []chan<- domain.Event
 	nextID   int
 }
 
@@ -133,6 +134,12 @@ func (b *Backend) sendPost(channelID, rootID, message string) (domain.Post, erro
 	if message == "fail-send" {
 		return domain.Post{}, fmt.Errorf("mock send failure")
 	}
+	if events, ok := mockControlEvents(message); ok {
+		for _, ev := range events {
+			b.broadcast(ev)
+		}
+		return domain.Post{}, nil
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.nextID++
@@ -150,6 +157,8 @@ func (b *Backend) sendPost(channelID, rootID, message string) (domain.Post, erro
 }
 
 func (b *Backend) WatchPosts(ctx context.Context, events chan<- domain.Event) error {
+	b.addWatcher(events)
+	defer b.removeWatcher(events)
 	ticker := time.NewTicker(45 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -167,6 +176,64 @@ func (b *Backend) WatchPosts(ctx context.Context, events chan<- domain.Event) er
 			case events <- domain.Event{Kind: domain.EventPost, Post: post}:
 			}
 		}
+	}
+}
+func (b *Backend) addWatcher(events chan<- domain.Event) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.watchers = append(b.watchers, events)
+}
+
+func (b *Backend) removeWatcher(events chan<- domain.Event) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i := range b.watchers {
+		if b.watchers[i] == events {
+			b.watchers = append(b.watchers[:i], b.watchers[i+1:]...)
+			return
+		}
+	}
+}
+
+func (b *Backend) broadcast(ev domain.Event) {
+	b.mu.Lock()
+	watchers := append([]chan<- domain.Event(nil), b.watchers...)
+	b.mu.Unlock()
+	for _, watcher := range watchers {
+		watcher <- ev
+	}
+}
+
+func mockControlEvents(message string) ([]domain.Event, bool) {
+	switch message {
+	case "mock:offline":
+		return []domain.Event{
+			{
+				Kind:    domain.EventState,
+				State:   domain.ConnectionOffline,
+				Message: "showing cached messages",
+			},
+			{
+				Kind:    domain.EventState,
+				State:   domain.ConnectionReconnecting,
+				Attempt: 1,
+				RetryIn: time.Second,
+				Message: "mock reconnect",
+			},
+		}, true
+	case "mock:reconnect":
+		return []domain.Event{{
+			Kind:  domain.EventState,
+			State: domain.ConnectionConnected,
+		}}, true
+	case "mock:auth-expired":
+		return []domain.Event{{
+			Kind:    domain.EventState,
+			State:   domain.ConnectionAuthExpired,
+			Message: "refresh token and restart",
+		}}, true
+	default:
+		return nil, false
 	}
 }
 
