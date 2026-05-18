@@ -129,6 +129,10 @@ func (b *Backend) SendReply(ctx context.Context, channelID, rootID, message stri
 }
 
 func (b *Backend) sendPost(channelID, rootID, message string) (domain.Post, error) {
+	message = strings.TrimSpace(message)
+	if message == "fail-send" {
+		return domain.Post{}, fmt.Errorf("mock send failure")
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.nextID++
@@ -138,7 +142,7 @@ func (b *Backend) sendPost(channelID, rootID, message string) (domain.Post, erro
 		RootID:    rootID,
 		UserID:    "me",
 		Username:  "you",
-		Message:   strings.TrimSpace(message),
+		Message:   message,
 		CreateAt:  time.Now().UnixMilli(),
 	}
 	b.posts[channelID] = append(b.posts[channelID], post)
