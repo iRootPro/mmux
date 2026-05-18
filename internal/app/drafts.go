@@ -32,6 +32,10 @@ func (m *Model) ensureDraftMaps() {
 	}
 }
 
+func (m Model) composerReady() bool {
+	return m.composer.Placeholder != ""
+}
+
 func (m *Model) saveActiveDraft() {
 	if m.activeDraftKey == "" {
 		return
@@ -47,6 +51,9 @@ func (m *Model) saveActiveDraft() {
 func (m *Model) loadDraft(key string) {
 	m.ensureDraftMaps()
 	m.activeDraftKey = key
+	if !m.composerReady() {
+		return
+	}
 	m.composer.SetValue(m.drafts[key])
 }
 
@@ -65,7 +72,7 @@ func (m *Model) clearDraft(key string) {
 	m.ensureDraftMaps()
 	delete(m.drafts, key)
 	delete(m.pendingSends, key)
-	if key == m.activeDraftKey {
+	if key == m.activeDraftKey && m.composerReady() {
 		m.composer.Reset()
 	}
 }
