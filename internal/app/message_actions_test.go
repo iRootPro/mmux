@@ -304,3 +304,141 @@ func TestFailedEditKeepsComposerTextAndEditMode(t *testing.T) {
 		t.Fatalf("status = %q", got.status)
 	}
 }
+
+type deleteRecordingBackend struct {
+	deletedPostID string
+	deleteErr     error
+}
+
+func (b *deleteRecordingBackend) Connect(context.Context) (*domain.Session, error) { return nil, nil }
+func (b *deleteRecordingBackend) LoadChannels(context.Context, string) ([]domain.Channel, error) {
+	return nil, nil
+}
+func (b *deleteRecordingBackend) LoadPosts(context.Context, string, int) ([]domain.Post, error) {
+	return nil, nil
+}
+func (b *deleteRecordingBackend) LoadPostsBefore(context.Context, string, string, int) ([]domain.Post, error) {
+	return nil, nil
+}
+func (b *deleteRecordingBackend) ViewChannel(context.Context, string) error { return nil }
+func (b *deleteRecordingBackend) LoadThread(context.Context, string) ([]domain.Post, error) {
+	return nil, nil
+}
+func (b *deleteRecordingBackend) SendPost(context.Context, string, string) (domain.Post, error) {
+	return domain.Post{}, nil
+}
+func (b *deleteRecordingBackend) SendReply(context.Context, string, string, string) (domain.Post, error) {
+	return domain.Post{}, nil
+}
+func (b *deleteRecordingBackend) UpdatePost(context.Context, string, string) (domain.Post, error) {
+	return domain.Post{}, nil
+}
+func (b *deleteRecordingBackend) DeletePost(_ context.Context, postID string) error {
+	b.deletedPostID = postID
+	return b.deleteErr
+}
+func (b *deleteRecordingBackend) WatchPosts(context.Context, chan<- domain.Event) error { return nil }
+func (b *deleteRecordingBackend) Close() error                                          { return nil }
+
+func TestDeleteOwnPostRequiresConfirmation(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.focus = focusTimeline
+	m.session = &domain.Session{User: domain.User{ID: "me"}}
+	m.posts = []domain.Post{{ID: "p1", UserID: "me", Message: "Hello"}}
+	m.selectedPost = 0
+
+	updated, cmd := m.deleteSelectedPost()
+	got := updated.(Model)
+	if got.pendingDeletePostID != "p1" {
+		t.Fatalf("pendingDeletePostID = %q", got.pendingDeletePostID)
+	}
+	if got.status != "press D again to delete" {
+		t.Fatalf("status = %q", got.status)
+	}
+	if cmd != nil {
+		t.Fatal("first delete press should not dispatch command")
+	}
+}
+
+func TestDeleteConfirmationClearsOnSelectionChange(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.focus = focusTimeline
+	m.session = &domain.Session{User: domain.User{ID: "me"}}
+	m.posts = []domain.Post{
+		{ID: "p1", UserID: "me", Message: "Hello"},
+		{ID: "p2", UserID: "me", Message: "Other"},
+	}
+	m.selectedPost = 0
+	m.pendingDeletePostID = "p1"
+
+	updated, _ := m.selectPost(1)
+	got := updated.(Model)
+	if got.pendingDeletePostID != "" {
+		t.Fatalf("pending delete not cleared: %q", got.pendingDeletePostID)
+	}
+}
+
+func TestCannotDeleteOtherUsersPost(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.focus = focusTimeline
+	m.session = &domain.Session{User: domain.User{ID: "me"}}
+	m.posts = []domain.Post{{ID: "p1", UserID: "other", Message: "Hello"}}
+	m.selectedPost = 0
+
+	updated, _ := m.deleteSelectedPost()
+	got := updated.(Model)
+	if got.pendingDeletePostID != "" {
+		t.Fatalf("unexpected pending delete: %q", got.pendingDeletePostID)
+	}
+	if got.status != "can only delete your own messages" {
+		t.Fatalf("status = %q", got.status)
+	}
+}
+
+func TestSuccessfulDeleteRemovesPostAndClampsSelection(t *testing.T) {
+	backend := &deleteRecordingBackend{}
+	m := New(backend, testConfig(), false)
+	m.focus = focusTimeline
+	m.session = &domain.Session{User: domain.User{ID: "me"}}
+	m.channels = []domain.Channel{{ID: "c1", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.posts = []domain.Post{
+		{ID: "p1", ChannelID: "c1", UserID: "me", Message: "Hello"},
+		{ID: "p2", ChannelID: "c1", UserID: "me", Message: "Other"},
+	}
+	m.postsByChannel = map[string][]domain.Post{"c1": {
+		{ID: "p1", ChannelID: "c1", UserID: "me", Message: "Hello"},
+		{ID: "p2", ChannelID: "c1", UserID: "me", Message: "Other"},
+	}}
+	m.threadPosts = []domain.Post{{ID: "p1", ChannelID: "c1", UserID: "me", Message: "Hello"}}
+	m.selectedPost = 0
+	m.pendingDeletePostID = "p1"
+
+	updated, cmd := m.deleteSelectedPost()
+	got := updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected delete command")
+	}
+	msg := cmd()
+	deletedMsg, ok := msg.(postDeletedMsg)
+	if !ok {
+		t.Fatalf("command msg = %#v", msg)
+	}
+	if deletedMsg.postID != "p1" || backend.deletedPostID != "p1" {
+		t.Fatalf("delete path not used: msg=%#v backend=%#v", deletedMsg, backend)
+	}
+	updated, _ = got.Update(postDeletedMsg{postID: "p1"})
+	got = updated.(Model)
+	if len(got.posts) != 1 || got.posts[0].ID != "p2" {
+		t.Fatalf("post not removed from timeline: %#v", got.posts)
+	}
+	if len(got.postsByChannel["c1"]) != 1 || got.postsByChannel["c1"][0].ID != "p2" {
+		t.Fatalf("post not removed from cache: %#v", got.postsByChannel["c1"])
+	}
+	if len(got.threadPosts) != 0 {
+		t.Fatalf("post not removed from thread view: %#v", got.threadPosts)
+	}
+	if got.selectedPost != 0 {
+		t.Fatalf("selectedPost = %d", got.selectedPost)
+	}
+}

@@ -84,6 +84,7 @@ func (m Model) selectPost(index int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.selectedPost = index
+	m.pendingDeletePostID = ""
 	m.refreshViewport()
 	m.scrollSelectedPostIntoView()
 	return m, nil
@@ -232,12 +233,33 @@ func (m Model) editSelectedPost() (tea.Model, tea.Cmd) {
 		m.status = "can only edit your own messages"
 		return m, nil
 	}
+	m.pendingDeletePostID = ""
 	m.composer.SetValue(post.Message)
 	m.editingPostID = post.ID
 	m.focus = focusComposer
 	m.applyFocus()
 	m.status = "editing message"
 	return m, nil
+}
+
+func (m Model) deleteSelectedPost() (tea.Model, tea.Cmd) {
+	idx, ok := m.selectedPostIndex()
+	if !ok {
+		return m, nil
+	}
+	post := m.posts[idx]
+	if !m.isOwnPost(post) {
+		m.status = "can only delete your own messages"
+		return m, nil
+	}
+	if m.pendingDeletePostID != post.ID {
+		m.pendingDeletePostID = post.ID
+		m.status = "press D again to delete"
+		return m, nil
+	}
+	m.pendingDeletePostID = ""
+	m.status = "deleting message…"
+	return m, deletePostCmd(m.ctx, m.backend, post.ID)
 }
 
 func formatQuotedReply(post domain.Post) string {

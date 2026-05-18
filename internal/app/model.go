@@ -81,6 +81,7 @@ type Model struct {
 	connectionRetryIn    time.Duration
 	connectionMessage    string
 	editingPostID        string
+	pendingDeletePostID  string
 	infoOpen             bool
 	teamSwitcherOpen     bool
 	teamSwitcherSelected int
@@ -375,6 +376,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "message updated"
 		m.refreshViewport()
 		m.refreshThreadViewport()
+		return m, nil
+
+	case postDeletedMsg:
+		if msg.err != nil {
+			m.err = msg.err.Error()
+			m.status = "delete failed"
+			return m, nil
+		}
+		m.err = ""
+		m.removePost(msg.postID)
+		m.removeCachedPost(msg.postID)
+		m.removeThreadPost(msg.postID)
+		m.pendingDeletePostID = ""
+		m.selectedPost = min(m.selectedPost, len(m.posts)-1)
+		if len(m.posts) == 0 {
+			m.selectedPost = -1
+		}
+		m.refreshViewport()
+		m.rebuildTriageItems()
+		m.status = "message deleted"
 		return m, nil
 
 	case backendEventMsg:
@@ -751,6 +772,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.copySelectedPostPermalink()
 		case "e":
 			return m.editSelectedPost()
+		case "D":
+			return m.deleteSelectedPost()
 		}
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
@@ -1768,6 +1791,44 @@ func (m *Model) replaceThreadPost(post domain.Post) {
 	for i := range m.threadPosts {
 		if m.threadPosts[i].ID == post.ID {
 			m.threadPosts[i] = post
+			return
+		}
+	}
+}
+
+func (m *Model) removePost(postID string) {
+	if postID == "" {
+		return
+	}
+	for i := range m.posts {
+		if m.posts[i].ID == postID {
+			m.posts = append(m.posts[:i], m.posts[i+1:]...)
+			return
+		}
+	}
+}
+
+func (m *Model) removeCachedPost(postID string) {
+	if postID == "" || m.postsByChannel == nil {
+		return
+	}
+	for channelID, posts := range m.postsByChannel {
+		for i := range posts {
+			if posts[i].ID == postID {
+				m.postsByChannel[channelID] = append(posts[:i], posts[i+1:]...)
+				return
+			}
+		}
+	}
+}
+
+func (m *Model) removeThreadPost(postID string) {
+	if postID == "" {
+		return
+	}
+	for i := range m.threadPosts {
+		if m.threadPosts[i].ID == postID {
+			m.threadPosts = append(m.threadPosts[:i], m.threadPosts[i+1:]...)
 			return
 		}
 	}

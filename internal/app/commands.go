@@ -81,6 +81,11 @@ type actionDoneMsg struct {
 	err    error
 }
 
+type postDeletedMsg struct {
+	postID string
+	err    error
+}
+
 type channelViewedMsg struct {
 	channelID string
 	err       error
@@ -191,6 +196,12 @@ func updatePostCmd(ctx context.Context, backend domain.Backend, postID, text str
 	return func() tea.Msg {
 		post, err := backend.UpdatePost(ctx, postID, text)
 		return postUpdatedMsg{post: post, err: err}
+	}
+}
+
+func deletePostCmd(ctx context.Context, backend domain.Backend, postID string) tea.Cmd {
+	return func() tea.Msg {
+		return postDeletedMsg{postID: postID, err: backend.DeletePost(ctx, postID)}
 	}
 }
 
