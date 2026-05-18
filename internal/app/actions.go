@@ -150,6 +150,27 @@ func (m Model) copySelectedPostText() (tea.Model, tea.Cmd) {
 	}
 }
 
+func (m Model) quoteSelectedPost() (tea.Model, tea.Cmd) {
+	idx, ok := m.selectedPostIndex()
+	if !ok {
+		return m, nil
+	}
+	quote := formatQuotedReply(m.posts[idx])
+	if quote == "" {
+		m.status = "selected message is empty"
+		return m, nil
+	}
+	current := m.composer.Value()
+	if current != "" && !strings.HasSuffix(current, "\n") {
+		current += "\n"
+	}
+	m.composer.SetValue(current + quote)
+	m.focus = focusComposer
+	m.applyFocus()
+	m.status = "quote inserted"
+	return m, nil
+}
+
 func formatQuotedReply(post domain.Post) string {
 	message := strings.TrimSpace(post.Message)
 	if message == "" {
