@@ -18,10 +18,16 @@ func (m Model) openSelectedThread() (tea.Model, tea.Cmd) {
 	if m.posts[idx].RootID != "" {
 		rootID = m.posts[idx].RootID
 	}
+	channelID := m.posts[idx].ChannelID
+	if channelID == "" {
+		channelID = m.currentChannelID()
+	}
 	m.saveActiveDraft()
+	m.applyThreadRead(channelID, rootID)
+	m.rebuildTriageItems()
 	m.threadOpen = true
 	m.threadRootID = rootID
-	m.loadDraft(threadDraftKey(m.currentChannelID(), rootID))
+	m.loadDraft(threadDraftKey(channelID, rootID))
 	m.threadLoading = true
 	m.threadPosts = nil
 	m.threadFocusComposer = false

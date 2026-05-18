@@ -186,7 +186,7 @@ func (m Model) openTriageThread(item triageItem) (tea.Model, tea.Cmd) {
 	}
 	m.saveActiveDraft()
 	m.loadDraft(threadDraftKey(channelID, rootID))
-	m.clearThreadReadSignal(channelID, rootID)
+	m.applyThreadRead(channelID, rootID)
 	m.rebuildTriageItems()
 	m.threadOpen = true
 	m.threadRootID = rootID

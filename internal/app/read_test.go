@@ -105,6 +105,81 @@ func TestMarkChannelReadClearsImportantFlagsAndLoadedThreadState(t *testing.T) {
 		}
 	}
 }
+func TestOpenCurrentChannelClearsChannelImportantStateOnce(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev", Unread: 2, Mentions: 1}}
+	m.selectedChannel = 0
+	m.postsByChannel = map[string][]domain.Post{
+		"dev": {
+			{ID: "a", ChannelID: "dev", Unread: true},
+			{ID: "b", ChannelID: "dev", Mentioned: true},
+		},
+	}
+
+	updated, _ := m.openCurrentChannel()
+	got := updated.(Model)
+	if got.channels[0].Unread != 0 || got.channels[0].Mentions != 0 {
+		t.Fatalf("openCurrentChannel did not clear important state: %#v", got.channels[0])
+	}
+	for _, post := range got.postsByChannel["dev"] {
+		if post.Unread || post.Mentioned || post.ThreadUnread {
+			t.Fatalf("cached posts retain important flags after openCurrentChannel: %#v", got.postsByChannel["dev"])
+		}
+	}
+
+	updated, _ = got.Update(postsLoadedMsg{channelID: "dev", posts: []domain.Post{
+		{ID: "a", ChannelID: "dev", Unread: true},
+		{ID: "b", ChannelID: "dev", Mentioned: true},
+	}})
+	got = updated.(Model)
+	if got.channels[0].Unread != 0 || got.channels[0].Mentions != 0 {
+		t.Fatalf("postsLoadedMsg did not preserve cleared state: %#v", got.channels[0])
+	}
+	for _, post := range got.postsByChannel["dev"] {
+		if post.Unread || post.Mentioned || post.ThreadUnread {
+			t.Fatalf("loaded posts retain important flags after channel open: %#v", got.postsByChannel["dev"])
+		}
+	}
+}
+
+func TestOpenSelectedThreadClearsThreadImportantState(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev", Unread: 2, Mentions: 1}}
+	m.selectedChannel = 0
+	m.selectedPost = 1
+	m.posts = []domain.Post{
+		{ID: "root", ChannelID: "dev", ThreadUnread: true, ReplyCount: 1},
+		{ID: "reply", ChannelID: "dev", RootID: "root", Unread: true, Mentioned: true},
+		{ID: "other", ChannelID: "dev", Unread: true},
+	}
+	m.postsByChannel = map[string][]domain.Post{
+		"dev": {
+			{ID: "root", ChannelID: "dev", ThreadUnread: true, ReplyCount: 1},
+			{ID: "reply", ChannelID: "dev", RootID: "root", Unread: true, Mentioned: true},
+			{ID: "other", ChannelID: "dev", Unread: true},
+		},
+	}
+
+	updated, _ := m.openSelectedThread()
+	got := updated.(Model)
+	if !got.threadOpen || got.threadRootID != "root" {
+		t.Fatalf("thread not opened: threadOpen=%v root=%q", got.threadOpen, got.threadRootID)
+	}
+	if got.channels[0].Unread != 1 || got.channels[0].Mentions != 0 {
+		t.Fatalf("thread open did not clear same work from channel counters: %#v", got.channels[0])
+	}
+	for _, post := range got.postsByChannel["dev"] {
+		if post.ID == "other" {
+			if !post.Unread {
+				t.Fatalf("unrelated unread should remain after thread open: %#v", got.postsByChannel["dev"])
+			}
+			continue
+		}
+		if post.Unread || post.Mentioned || post.ThreadUnread {
+			t.Fatalf("opened thread retained important flags: %#v", got.postsByChannel["dev"])
+		}
+	}
+}
 
 func TestLivePostInCurrentChannelSendsViewChannel(t *testing.T) {
 	backend := &viewRecordingBackend{}

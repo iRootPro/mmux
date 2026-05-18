@@ -378,6 +378,24 @@ func TestBuildTriageItemsDoesNotResurrectReadThreadWhenUnrelatedUnreadArrives(t 
 		t.Fatalf("expected only unrelated unread item after read thread was cleared, got %#v", items)
 	}
 }
+func TestBuildTriageItemsDoesNotResurrectThreadAfterThreadOpenClearsSameWork(t *testing.T) {
+	m := Model{
+		channels: []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev", Unread: 2}},
+		postsByChannel: map[string][]domain.Post{
+			"dev": {
+				{ID: "root", ChannelID: "dev", ThreadUnread: true, ReplyCount: 1, CreateAt: 100},
+				{ID: "reply", ChannelID: "dev", RootID: "root", Unread: true, ThreadUnread: true, CreateAt: 200},
+			},
+		},
+	}
+
+	m.clearThreadReadSignal("dev", "root")
+
+	items := buildTriageItems(m)
+	if len(items) != 0 {
+		t.Fatalf("cleared thread work should not resurrect in triage: %#v", items)
+	}
+}
 
 func TestRebuildTriageItemsSkipsDismissedButReaddsChangedSignal(t *testing.T) {
 	m := Model{
@@ -509,11 +527,18 @@ func TestHandleTriageEnterThreadInOtherChannelRoutesThroughChannelLoad(t *testin
 	m := Model{
 		channels: []domain.Channel{
 			{ID: "town", Type: "O", DisplayName: "town"},
-			{ID: "dev", Type: "O", DisplayName: "dev", Unread: 1},
+			{ID: "dev", Type: "O", DisplayName: "dev", Unread: 2},
 		},
 		selectedChannel: 0,
 		triageOpen:      true,
 		triageItems:     []triageItem{{Kind: triageThreadReply, ChannelID: "dev", RootID: "root-1", PostID: "reply-1"}},
+		postsByChannel: map[string][]domain.Post{
+			"dev": {
+				{ID: "root-1", ChannelID: "dev", ThreadUnread: true, ReplyCount: 1, CreateAt: 100},
+				{ID: "reply-1", ChannelID: "dev", RootID: "root-1", Unread: true, ThreadUnread: true, CreateAt: 200},
+				{ID: "other", ChannelID: "dev", Unread: true, CreateAt: 300},
+			},
+		},
 	}
 
 	updated, _ := m.handleTriageKey(triageKey("enter"))
@@ -524,8 +549,27 @@ func TestHandleTriageEnterThreadInOtherChannelRoutesThroughChannelLoad(t *testin
 	if got.pendingJumpChannelID != "dev" || got.pendingJumpThreadID != "root-1" || got.pendingJumpPostID != "root-1" {
 		t.Fatalf("pending thread jump not set: channel=%q post=%q thread=%q", got.pendingJumpChannelID, got.pendingJumpPostID, got.pendingJumpThreadID)
 	}
+	if got.channels[1].Unread != 2 {
+		t.Fatalf("cross-channel thread open should not clear the whole channel before load: %#v", got.channels[1])
+	}
 	if got.status == "" {
 		t.Fatal("cross-channel open should start loading or refreshing")
+	}
+
+	updated, _ = got.Update(postsLoadedMsg{channelID: "dev", posts: []domain.Post{
+		{ID: "root-1", ChannelID: "dev", ThreadUnread: true, ReplyCount: 1, CreateAt: 100},
+		{ID: "reply-1", ChannelID: "dev", RootID: "root-1", Unread: true, ThreadUnread: true, CreateAt: 200},
+		{ID: "other", ChannelID: "dev", Unread: true, CreateAt: 300},
+	}})
+	got = updated.(Model)
+	if !got.threadOpen || got.threadRootID != "root-1" {
+		t.Fatalf("loaded cross-channel thread not opened: threadOpen=%v root=%q", got.threadOpen, got.threadRootID)
+	}
+	if got.channels[1].Unread != 1 {
+		t.Fatalf("thread open should clear only thread work from counters: %#v", got.channels[1])
+	}
+	if len(got.triageItems) != 1 || got.triageItems[0].Kind != triageUnreadChannel || got.triageItems[0].ChannelID != "dev" || got.triageItems[0].PostID != "other" {
+		t.Fatalf("thread open should leave only unrelated triage work: %#v", got.triageItems)
 	}
 }
 

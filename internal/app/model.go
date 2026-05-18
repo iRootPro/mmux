@@ -239,7 +239,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingJumpPostID = ""
 			m.pendingJumpThreadID = ""
 		}
-		m.markChannelRead(msg.channelID)
+		if pendingThreadID != "" {
+			m.applyThreadRead(msg.channelID, pendingThreadID)
+		} else {
+			m.applyChannelRead(msg.channelID)
+		}
 		m.cachePosts(msg.channelID, m.posts)
 		m.rebuildTriageItems()
 		m.refreshViewport()
@@ -1346,8 +1350,12 @@ func (m Model) openCurrentChannel() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.switchDraft(channelDraftKey(channelID))
-	m.clearUnread(channelID)
-	m.rebuildTriageItems()
+	if channelID == m.pendingJumpChannelID && m.pendingJumpThreadID != "" {
+		m.rebuildTriageItems()
+	} else {
+		m.applyChannelRead(channelID)
+		m.rebuildTriageItems()
+	}
 	m.hasOlder = true
 	m.loadingOlder = false
 	if m.showCachedPosts(channelID) {
