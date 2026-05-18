@@ -133,6 +133,8 @@ func TestReactionPickerEnterAddsReaction(t *testing.T) {
 	m.reactionPickerOpen = true
 	m.posts = []domain.Post{{ID: "p1", ChannelID: "c1", Message: "hello"}}
 	m.selectedPost = 0
+	m.reactionTargetKind = reactionTargetTimeline
+	m.reactionTargetPostID = "p1"
 
 	updated, cmd := m.handleReactionPickerKey(tea.KeyMsg{Type: tea.KeyEnter})
 	got := updated.(Model)
@@ -159,6 +161,8 @@ func TestReactionPickerEnterRemovesExistingReaction(t *testing.T) {
 	m.reactionPickerOpen = true
 	m.posts = []domain.Post{{ID: "p1", ChannelID: "c1", Message: "hello", Reactions: []domain.PostReaction{{Name: defaultReactions[0].Name, Count: 1, Reacted: true}}}}
 	m.selectedPost = 0
+	m.reactionTargetKind = reactionTargetTimeline
+	m.reactionTargetPostID = "p1"
 
 	updated, cmd := m.handleReactionPickerKey(tea.KeyMsg{Type: tea.KeyEnter})
 	got := updated.(Model)
