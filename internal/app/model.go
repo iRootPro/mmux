@@ -1479,8 +1479,10 @@ func (m *Model) resize() {
 
 	m.viewport.Width = mainWidth - 4
 	m.viewport.Height = viewportHeight
-	m.composer.SetWidth(mainWidth - 4)
-	m.composer.SetHeight(3)
+	if m.composerReady() {
+		m.composer.SetWidth(mainWidth - 4)
+		m.composer.SetHeight(3)
+	}
 	if m.threadOpen {
 		threadWidth := min(max(46, m.width/3), 72)
 		if m.width < 120 {
