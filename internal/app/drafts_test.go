@@ -300,3 +300,64 @@ func TestFailedReplyForInactiveThreadDoesNotOverwriteChannelComposer(t *testing.
 		t.Fatalf("inactive failed reply draft not stored: %#v", got.drafts)
 	}
 }
+
+func TestSuccessfulSendDoesNotClearNewSameDestinationText(t *testing.T) {
+	key := channelDraftKey("dev")
+	m := New(nil, testConfig(), false)
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.loadDraft(key)
+	m.pendingSends[key] = "first"
+	m.composer.SetValue("second")
+
+	updated, _ := m.Update(postSentMsg{channelID: "dev", draftKey: key, text: "first", post: domain.Post{ID: "p1", ChannelID: "dev", Message: "first"}})
+	got := updated.(Model)
+	if got.composer.Value() != "second" {
+		t.Fatalf("new same-destination text was cleared: %q", got.composer.Value())
+	}
+}
+
+func TestFailedSendDoesNotOverwriteNewSameDestinationText(t *testing.T) {
+	key := channelDraftKey("dev")
+	m := New(nil, testConfig(), false)
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.loadDraft(key)
+	m.pendingSends[key] = "first"
+	m.composer.SetValue("second")
+
+	updated, _ := m.Update(postSentMsg{channelID: "dev", draftKey: key, text: "first", err: assertErr{}})
+	got := updated.(Model)
+	if got.composer.Value() != "second" {
+		t.Fatalf("failed old send overwrote new same-destination text: %q", got.composer.Value())
+	}
+	if got.drafts[key] == "first" {
+		t.Fatalf("failed old send overwrote newer draft state: %#v", got.drafts)
+	}
+}
+
+func TestSendResponseDoesNotReplaceSavedNewerInactiveDraft(t *testing.T) {
+	key := channelDraftKey("dev")
+	m := New(nil, testConfig(), false)
+	m.channels = []domain.Channel{
+		{ID: "dev", Type: "O", DisplayName: "dev"},
+		{ID: "alerts", Type: "O", DisplayName: "alerts"},
+	}
+	m.selectedChannel = 1
+	m.loadDraft(channelDraftKey("alerts"))
+	m.pendingSends[key] = "first"
+	m.drafts[key] = "second"
+
+	updated, _ := m.Update(postSentMsg{channelID: "dev", draftKey: key, text: "first", err: assertErr{}})
+	got := updated.(Model)
+	if got.drafts[key] != "second" {
+		t.Fatalf("inactive newer draft overwritten after failure: %#v", got.drafts)
+	}
+
+	got.pendingSends[key] = "first"
+	updated, _ = got.Update(postSentMsg{channelID: "dev", draftKey: key, text: "first", post: domain.Post{ID: "p1", ChannelID: "dev", Message: "first"}})
+	got = updated.(Model)
+	if got.drafts[key] != "second" {
+		t.Fatalf("inactive newer draft deleted after success: %#v", got.drafts)
+	}
+}

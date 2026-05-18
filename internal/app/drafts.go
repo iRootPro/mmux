@@ -95,9 +95,14 @@ func (m *Model) completePendingSend(key string) {
 	}
 	m.ensureDraftMaps()
 	delete(m.pendingSends, key)
-	delete(m.drafts, key)
 	if key == m.activeDraftKey && m.composerReady() {
-		m.composer.Reset()
+		if strings.TrimSpace(m.composer.Value()) == "" {
+			m.composer.Reset()
+		}
+		return
+	}
+	if strings.TrimSpace(m.drafts[key]) == "" {
+		delete(m.drafts, key)
 	}
 }
 
@@ -113,8 +118,14 @@ func (m *Model) restorePendingSend(key, text string) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
-	m.drafts[key] = text
 	if key == m.activeDraftKey && m.composerReady() {
-		m.composer.SetValue(text)
+		if strings.TrimSpace(m.composer.Value()) == "" {
+			m.drafts[key] = text
+			m.composer.SetValue(text)
+		}
+		return
+	}
+	if strings.TrimSpace(m.drafts[key]) == "" {
+		m.drafts[key] = text
 	}
 }
