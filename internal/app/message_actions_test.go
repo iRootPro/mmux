@@ -442,3 +442,14 @@ func TestSuccessfulDeleteRemovesPostAndClampsSelection(t *testing.T) {
 		t.Fatalf("selectedPost = %d", got.selectedPost)
 	}
 }
+
+func TestHelpTextMentionsEditAndDeleteKeys(t *testing.T) {
+	m := Model{}
+	got := m.helpText()
+	if !strings.Contains(got, "  e                 edit selected own message") {
+		t.Fatalf("help text missing edit row: %q", got)
+	}
+	if !strings.Contains(got, "  D                 delete selected own message (press twice)") {
+		t.Fatalf("help text missing delete row: %q", got)
+	}
+}

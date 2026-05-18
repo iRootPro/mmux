@@ -1412,6 +1412,8 @@ func (m Model) helpText() string {
   p                 copy selected message permalink
   o / enter         open first link in selected message
   r                 quote selected message into composer
+  e                 edit selected own message
+  D                 delete selected own message (press twice)
   t                 open thread for selected message
   ctrl+r            reload current channel or reconnect when offline
   ?                 toggle help
