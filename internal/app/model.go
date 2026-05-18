@@ -364,60 +364,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			post := msg.event.Post
 			mentionActivity := m.isMentionActivity(post)
 			if mentionActivity {
-				post.Unread = true
 				m.status = m.activityStatus(post)
 			}
 			m.recordActivity(post)
+			viewCurrent := post.ChannelID == m.currentChannelID()
+			visibleThread := post.RootID != "" && viewCurrent && m.threadOpen && post.RootID == m.threadRootID
+			wasAtEnd := m.selectedPost >= len(m.posts)-1
+			m.applyIncomingPost(post, visibleThread, mentionActivity)
 			if post.RootID != "" {
-				viewCurrent := post.ChannelID == m.currentChannelID()
-				visibleThread := viewCurrent && m.threadOpen && post.RootID == m.threadRootID
-				if !visibleThread {
-					post.Unread = true
-					post.ThreadUnread = true
-				}
-				m.addPostToCache(post.ChannelID, post)
-				m.bumpReplyCount(post.RootID)
-				if !visibleThread {
-					m.markThreadUnread(post.ChannelID, post.RootID)
-				}
 				if visibleThread {
-					m.threadPosts = append(m.threadPosts, m.normalizePost(post))
 					m.refreshThreadViewport()
 					m.threadViewport.GotoBottom()
-				}
-				if !visibleThread {
-					m.bumpUnread(post.ChannelID)
-					if mentionActivity {
-						m.bumpMention(post.ChannelID)
-					}
-				} else {
-					m.markChannelRead(post.ChannelID)
-					cmds = append(cmds, viewChannelCmd(m.ctx, m.backend, post.ChannelID))
 				}
 				m.refreshViewport()
 				m.rebuildTriageItems()
 				return m, tea.Batch(cmds...)
 			}
-			viewCurrent := post.ChannelID == m.currentChannelID()
-			if !viewCurrent {
-				post.Unread = true
-			}
-			m.addPostToCache(post.ChannelID, post)
 			if viewCurrent {
-				wasAtEnd := m.selectedPost >= len(m.posts)-1
-				m.addPost(post)
 				if wasAtEnd {
 					m.selectedPost = len(m.posts) - 1
 				}
-				m.markChannelRead(post.ChannelID)
 				m.refreshViewport()
 				m.viewport.GotoBottom()
 				cmds = append(cmds, viewChannelCmd(m.ctx, m.backend, post.ChannelID))
-			} else {
-				m.bumpUnread(post.ChannelID)
-				if mentionActivity {
-					m.bumpMention(post.ChannelID)
-				}
 			}
 			m.rebuildTriageItems()
 		case domain.EventState:
@@ -1858,6 +1827,38 @@ func (m Model) channelIndexByID(channelID string) int {
 		}
 	}
 	return -1
+}
+
+func (m *Model) applyIncomingPost(post domain.Post, visibleThread, mentionActivity bool) {
+	viewCurrent := post.ChannelID == m.currentChannelID()
+	if mentionActivity {
+		post.Mentioned = true
+	}
+	switch {
+	case post.RootID != "":
+		if visibleThread {
+			clearImportantFlags(&post)
+			m.addPostToCache(post.ChannelID, post)
+			m.bumpReplyCount(post.RootID)
+			m.threadPosts = append(m.threadPosts, m.normalizePost(post))
+			m.reconcileChannelImportance(post.ChannelID)
+			return
+		}
+		post.Unread = true
+		post.ThreadUnread = true
+		m.addPostToCache(post.ChannelID, post)
+		m.bumpReplyCount(post.RootID)
+		m.markThreadUnread(post.ChannelID, post.RootID)
+		m.reconcileChannelImportance(post.ChannelID)
+	case viewCurrent:
+		clearImportantFlags(&post)
+		m.addPost(post)
+		m.markChannelRead(post.ChannelID)
+	default:
+		post.Unread = true
+		m.addPostToCache(post.ChannelID, post)
+		m.reconcileChannelImportance(post.ChannelID)
+	}
 }
 
 func (m *Model) markChannelRead(channelID string) {
