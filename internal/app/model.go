@@ -71,6 +71,9 @@ type Model struct {
 	triageSelected       int
 	triageItems          []triageItem
 	dismissedTriage      map[string]struct{}
+	drafts               map[string]string
+	activeDraftKey       string
+	pendingSends         map[string]string
 	infoOpen             bool
 	teamSwitcherOpen     bool
 	teamSwitcherSelected int
@@ -136,6 +139,8 @@ func New(backend domain.Backend, cfg config.Config, mockFallback bool) Model {
 		favoriteChannels:  favorites,
 		collapsedSections: map[string]bool{},
 		dismissedTriage:   map[string]struct{}{},
+		drafts:            map[string]string{},
+		pendingSends:      map[string]string{},
 		status:            "connecting…",
 		loading:           true,
 		hasOlder:          true,
