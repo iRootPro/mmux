@@ -1409,7 +1409,9 @@ func (m Model) helpText() string {
   ctrl+j            insert newline in composer
   [ or ctrl+o       load older messages
   y                 copy selected message text
+  p                 copy selected message permalink
   o / enter         open first link in selected message
+  r                 quote selected message into composer
   t                 open thread for selected message
   ctrl+r            reload current channel or reconnect when offline
   ?                 toggle help

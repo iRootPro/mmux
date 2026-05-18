@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	"band-tui/internal/domain"
@@ -133,5 +134,13 @@ func TestCopySelectedPostPermalinkSetsStatus(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("expected clipboard command")
+	}
+}
+
+func TestHelpTextMentionsQuoteAndPermalinkKeys(t *testing.T) {
+	m := Model{}
+	got := m.helpText()
+	if !strings.Contains(got, "r") || !strings.Contains(got, "quote") || !strings.Contains(got, "p") || !strings.Contains(got, "permalink") {
+		t.Fatalf("help text missing message action keys: %q", got)
 	}
 }
