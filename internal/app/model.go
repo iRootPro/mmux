@@ -51,6 +51,7 @@ type Model struct {
 	threadOpen          bool
 	threadRootID        string
 	threadPosts         []domain.Post
+	threadLineOffsets   []int
 	threadLoading       bool
 	threadSelected      int
 	threadViewport      viewport.Model
@@ -315,6 +316,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = ""
 		m.threadPosts = msg.posts
+		m.defaultThreadSelection()
 		if channelID := threadChannelID(msg.posts); channelID != "" {
 			m.applyThreadRead(channelID, msg.rootID)
 		}
@@ -1136,11 +1138,15 @@ func (m Model) handleThreadKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.threadSelected > 0 {
 				m.threadSelected--
+				m.refreshThreadViewport()
+				m.scrollSelectedThreadPostIntoView()
 			}
 			return m, nil
 		case "down", "j":
 			if m.threadSelected < len(m.threadPosts)-1 {
 				m.threadSelected++
+				m.refreshThreadViewport()
+				m.scrollSelectedThreadPostIntoView()
 			}
 			return m, nil
 		case "pgup":
@@ -1152,11 +1158,15 @@ func (m Model) handleThreadKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "home":
 			if len(m.threadPosts) > 0 {
 				m.threadSelected = 0
+				m.refreshThreadViewport()
+				m.scrollSelectedThreadPostIntoView()
 			}
 			return m, nil
 		case "end":
 			if len(m.threadPosts) > 0 {
 				m.threadSelected = len(m.threadPosts) - 1
+				m.refreshThreadViewport()
+				m.scrollSelectedThreadPostIntoView()
 			}
 			return m, nil
 		case "R":
@@ -1655,13 +1665,37 @@ func (m *Model) refreshThreadViewport() {
 	var content string
 	switch {
 	case m.threadLoading:
+		m.threadLineOffsets = nil
 		content = muted.Render("Loading thread…")
-	case !m.threadHasReplies():
+	case len(m.threadPosts) == 0:
+		m.threadLineOffsets = nil
 		content = muted.Render("No replies yet.")
 	default:
-		content = m.renderThreadPosts(max(20, m.threadViewport.Width))
+		content, m.threadLineOffsets = m.renderThreadPostsWithOffsets(max(20, m.threadViewport.Width))
 	}
 	m.threadViewport.SetContent(content)
+}
+
+func (m *Model) scrollSelectedThreadPostIntoView() {
+	if m.threadSelected < 0 || m.threadSelected >= len(m.threadLineOffsets) {
+		return
+	}
+	top := m.threadLineOffsets[m.threadSelected]
+	bottom := top
+	if m.threadSelected+1 < len(m.threadLineOffsets) {
+		bottom = max(top, m.threadLineOffsets[m.threadSelected+1]-1)
+	} else {
+		bottom = top + 2
+	}
+	viewTop := m.threadViewport.YOffset
+	viewBottom := m.threadViewport.YOffset + max(1, m.threadViewport.Height) - 1
+	if top < viewTop {
+		m.threadViewport.SetYOffset(top)
+		return
+	}
+	if bottom > viewBottom {
+		m.threadViewport.SetYOffset(max(0, bottom-m.threadViewport.Height+1))
+	}
 }
 
 func (m *Model) refreshViewport() {

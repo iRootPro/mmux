@@ -576,17 +576,38 @@ func (m Model) threadHasReplies() bool {
 	return m.threadReplyCount() > 0
 }
 
-func (m Model) renderThreadPosts(width int) string {
-	var b strings.Builder
-	repliesWritten := 0
-	replyCount := m.threadReplyCount()
-	var prevReply domain.Post
-	hasPrevReply := false
-	for idx, post := range m.threadPosts {
-		if post.ID == m.threadRootID || post.RootID == "" {
-			continue
+func threadRenderedCount(posts []domain.Post, rootID string) int {
+	count := 0
+	for _, post := range posts {
+		if post.ID == rootID || post.RootID == rootID || (rootID == "" && post.RootID == "") {
+			count++
 		}
-		grouped := hasPrevReply && shouldGroupTimelinePost(prevReply, post)
+	}
+	return count
+}
+
+func (m Model) renderThreadPosts(width int) string {
+	content, _ := m.renderThreadPostsWithOffsets(width)
+	return content
+}
+
+func (m Model) renderThreadPostsWithOffsets(width int) (string, []int) {
+	var b strings.Builder
+	offsets := make([]int, len(m.threadPosts))
+	lineNo := 0
+	writeLine := func(s string) {
+		b.WriteString(s)
+		b.WriteString("\n")
+		lineNo++
+	}
+	writeBlank := func() { writeLine("") }
+	repliesWritten := 0
+	replyCount := threadRenderedCount(m.threadPosts, m.threadRootID)
+	var prevRendered domain.Post
+	hasPrevRendered := false
+	for idx, post := range m.threadPosts {
+		offsets[idx] = lineNo
+		grouped := hasPrevRendered && shouldGroupTimelinePost(prevRendered, post)
 		selected := idx == m.threadSelected && !m.threadFocusComposer
 		if !grouped {
 			user := sanitizeTerminal(post.Username)
@@ -600,26 +621,23 @@ func (m Model) renderThreadPosts(width int) string {
 			if post.ThreadUnread {
 				header += accent.Render("  ● new replies")
 			}
-			b.WriteString(m.renderPostLine(header, selected))
-			b.WriteString("\n")
+			writeLine(m.renderPostLine(header, selected))
 		}
 		body := renderMarkdownMessage(post.Message, max(20, width-4))
 		for _, line := range strings.Split(body, "\n") {
-			b.WriteString(m.renderPostLine(baseStyle.Render(line), selected))
-			b.WriteString("\n")
+			writeLine(m.renderPostLine(baseStyle.Render(line), selected))
 		}
 		if badges := renderReactionBadges(post); badges != "" {
-			b.WriteString(m.renderPostLine(badges, selected))
-			b.WriteString("\n")
+			writeLine(m.renderPostLine(badges, selected))
 		}
 		repliesWritten++
-		prevReply = post
-		hasPrevReply = true
+		prevRendered = post
+		hasPrevRendered = true
 		if repliesWritten < replyCount && !nextThreadReplyGroups(m.threadPosts, idx+1, m.threadRootID, post) {
-			b.WriteString("\n")
+			writeBlank()
 		}
 	}
-	return strings.TrimRight(b.String(), "\n")
+	return strings.TrimRight(b.String(), "\n"), offsets
 }
 
 func nextThreadReplyGroups(posts []domain.Post, start int, rootID string, current domain.Post) bool {

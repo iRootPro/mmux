@@ -230,6 +230,7 @@ func (m Model) openTriageThread(item triageItem) (tea.Model, tea.Cmd) {
 	m.rebuildTriageItems()
 	m.threadOpen = true
 	m.threadRootID = rootID
+	m.threadSelected = -1
 	m.threadLoading = true
 	m.threadPosts = nil
 	m.threadFocusComposer = false

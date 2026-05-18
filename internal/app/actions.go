@@ -51,6 +51,7 @@ func (m Model) openSelectedThread() (tea.Model, tea.Cmd) {
 	m.rebuildTriageItems()
 	m.threadOpen = true
 	m.threadRootID = rootID
+	m.threadSelected = -1
 	m.loadDraft(threadDraftKey(channelID, rootID))
 	m.threadLoading = true
 	m.threadPosts = nil
