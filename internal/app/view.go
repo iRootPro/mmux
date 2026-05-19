@@ -1451,8 +1451,11 @@ func (m Model) renderStatus(width int) string {
 		segments = append(segments, m.statusChip(icon+" "+mainStatus, statusChipBase))
 	}
 	if !m.threadOpen {
+		if m.focus == focusComposer {
+			segments = append(segments, m.statusChip("↓ "+m.timelinePositionLabel(), statusChipBase))
+		}
 		if hint := m.focusStatusHint(); hint != "" {
-			segments = append(segments, m.statusChip("⌘ "+hint, statusKeyChip))
+			segments = append(segments, m.statusChip(m.tr("keys")+": "+hint, statusKeyChip))
 		}
 	}
 	if m.err != "" {
@@ -1525,7 +1528,7 @@ func (m Model) focusStatusHint() string {
 		case focusTimeline:
 			return "лента · j/k выбрать · t тред · y копия · n непрочит. · ctrl+h сайдбар · ctrl+j ввод"
 		case focusComposer:
-			return m.timelinePositionLabel() + " · ctrl+h сайдбар · ctrl+k лента"
+			return "ctrl+h сайдбар · ctrl+k лента"
 		default:
 			return "? помощь"
 		}
@@ -1536,7 +1539,7 @@ func (m Model) focusStatusHint() string {
 	case focusTimeline:
 		return "timeline · j/k select · t thread · y copy · n unread · ctrl+h sidebar · ctrl+j compose"
 	case focusComposer:
-		return m.timelinePositionLabel() + " · ctrl+h sidebar · ctrl+k timeline"
+		return "ctrl+h sidebar · ctrl+k timeline"
 	default:
 		return "? help"
 	}

@@ -54,6 +54,7 @@ var ruStrings = map[string]string{
 	"reply composer inactive":        "ответ не активен",
 	"tab reply":                      "tab ответ",
 	"reply in thread":                "ответ в тред",
+	"keys":                           "клавиши",
 	"at latest":                      "последние сообщения",
 	"scrolled":                       "прокручено",
 	"ready":                          "готово",
