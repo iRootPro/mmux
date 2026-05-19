@@ -674,7 +674,7 @@ func (m *Model) noteConnectionIssue(err error) {
 }
 
 func (m Model) connectionStatusText() string {
-	if m.connectionState == "" {
+	if m.connectionState == "" || m.connectionState == domain.ConnectionConnected || m.connectionState == domain.ConnectionConnecting {
 		return ""
 	}
 	return m.connectionEventStatus(domain.Event{

@@ -3,6 +3,7 @@ package app
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"band-tui/internal/domain"
 
@@ -75,5 +76,23 @@ func TestRenderStatusDefaultsEmptyStatusToReady(t *testing.T) {
 
 	if !strings.Contains(got, "ready") || strings.Contains(got, "·   ") {
 		t.Fatalf("empty status should render ready without dangling separator: %q", got)
+	}
+}
+
+func TestRenderStatusHidesHealthyOrInitialNetworkState(t *testing.T) {
+	for _, state := range []domain.ConnectionState{domain.ConnectionConnecting, domain.ConnectionConnected} {
+		m := Model{status: "56 messages", connectionState: state, focus: focusComposer}
+		got := m.renderStatus(160)
+		if strings.Contains(got, "net:") || strings.Contains(got, "сеть:") || strings.Contains(got, "connecting") || strings.Contains(got, "подключение") {
+			t.Fatalf("healthy/initial network state should not be noisy for %q: %q", state, got)
+		}
+	}
+}
+
+func TestRenderStatusShowsUnhealthyNetworkState(t *testing.T) {
+	m := Model{status: "56 messages", connectionState: domain.ConnectionReconnecting, connectionRetryIn: 5 * time.Second, focus: focusComposer}
+	got := m.renderStatus(160)
+	if !strings.Contains(got, "net:") || !strings.Contains(got, "reconnecting") {
+		t.Fatalf("reconnecting state should be visible: %q", got)
 	}
 }
