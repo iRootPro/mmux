@@ -279,3 +279,24 @@ func saveLanguageCmd(configPath, serverURL, language string) tea.Cmd {
 		return preferenceSavedMsg{err: config.SaveFile(configPath, cfg)}
 	}
 }
+
+func saveConnectionSettingsCmd(configPath string, appCfg config.Config) tea.Cmd {
+	return func() tea.Msg {
+		cfg, err := config.LoadFile(configPath)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return preferenceSavedMsg{err: err}
+		}
+		cfg.ServerURL = appCfg.ServerURL
+		cfg.Token = appCfg.Token
+		if appCfg.Language != "" {
+			cfg.Language = appCfg.Language
+		}
+		if appCfg.Team != "" {
+			cfg.Team = appCfg.Team
+		}
+		if appCfg.Channel != "" {
+			cfg.Channel = appCfg.Channel
+		}
+		return preferenceSavedMsg{err: config.SaveFile(configPath, cfg)}
+	}
+}

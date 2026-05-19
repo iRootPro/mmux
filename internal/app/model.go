@@ -75,6 +75,9 @@ type Model struct {
 	triageOpen             bool
 	settingsOpen           bool
 	settingsSelected       int
+	settingsEditing        bool
+	settingsDraftServer    string
+	settingsDraftToken     string
 	reactionPickerOpen     bool
 	reactionPickerSelected int
 	reactionPickerQuery    string

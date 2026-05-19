@@ -21,6 +21,7 @@ func TestSettingsOpensFromComposerAndPersistsLanguage(t *testing.T) {
 		t.Fatal("alt+, should open settings even from composer")
 	}
 
+	got.settingsSelected = settingsItemLanguage
 	updated, cmd := got.handleSettingsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
 	got = updated.(Model)
 	if got.language() != languageRussian {
@@ -70,5 +71,38 @@ func TestSwitcherCanOpenSettings(t *testing.T) {
 	updated, _ := m.executeSwitcherCommand(switcherOpenSettings)
 	if !updated.(Model).settingsOpen {
 		t.Fatal("switcher settings command should open settings")
+	}
+}
+
+func TestSettingsCanSaveConnection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	m := New(nil, config.Config{Config: path, ServerURL: "https://old.example.com"}, true).openSettingsOverlay()
+	m.settingsSelected = settingsItemServer
+
+	updated, _ := m.handleSettingsKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	updated, _ = m.handleSettingsKey(tea.KeyMsg{Type: tea.KeyCtrlU})
+	m = updated.(Model)
+	for _, r := range []rune("https://chat.example.com/") {
+		updated, _ = m.handleSettingsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(Model)
+	}
+	updated, cmd := m.handleSettingsKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if m.cfg.ServerURL != "https://chat.example.com" || !strings.Contains(m.status, "restart") {
+		t.Fatalf("server not saved into model: url=%q status=%q", m.cfg.ServerURL, m.status)
+	}
+	if cmd == nil {
+		t.Fatal("expected save command")
+	}
+	if msg := cmd(); msg.(preferenceSavedMsg).err != nil {
+		t.Fatalf("save failed: %#v", msg)
+	}
+	cfg, err := config.LoadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ServerURL != "https://chat.example.com" {
+		t.Fatalf("saved server = %q", cfg.ServerURL)
 	}
 }

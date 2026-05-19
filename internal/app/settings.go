@@ -2,11 +2,18 @@ package app
 
 import (
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-const settingsItemLanguage = 0
+const (
+	settingsItemServer = iota
+	settingsItemToken
+	settingsItemLanguage
+	settingsItemSave
+	settingsItemCount
+)
 
 func isGlobalSettingsKey(msg tea.KeyMsg) bool {
 	switch msg.String() {
@@ -28,6 +35,9 @@ func (m Model) toggleSettingsOverlay() Model {
 func (m Model) openSettingsOverlay() Model {
 	m.settingsOpen = true
 	m.settingsSelected = 0
+	m.settingsEditing = false
+	m.settingsDraftServer = m.cfg.ServerURL
+	m.settingsDraftToken = m.cfg.Token
 	m.activityOpen = false
 	m.switcherOpen = false
 	m.switcherQuery = ""
@@ -41,6 +51,9 @@ func (m Model) openSettingsOverlay() Model {
 }
 
 func (m Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.settingsEditing {
+		return m.handleSettingsEditKey(msg)
+	}
 	switch msg.String() {
 	case "ctrl+c":
 		m.cancel()
@@ -49,22 +62,123 @@ func (m Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		m.settingsOpen = false
 		return m, nil
-	case "up", "k", "down", "j", "tab", "shift+tab":
-		// Only one setting for now; keep these keys reserved as the modal grows.
-		m.settingsSelected = settingsItemLanguage
+	case "up", "k", "shift+tab":
+		m.settingsSelected = (m.settingsSelected + settingsItemCount - 1) % settingsItemCount
 		return m, nil
-	case "left", "h", "right", "l", " ", "enter":
-		return m.cycleLanguageSetting()
+	case "down", "j", "tab":
+		m.settingsSelected = (m.settingsSelected + 1) % settingsItemCount
+		return m, nil
+	case "left", "h", "right", "l", " ":
+		if m.settingsSelected == settingsItemLanguage {
+			return m.cycleLanguageSetting()
+		}
+		return m, nil
+	case "enter":
+		switch m.settingsSelected {
+		case settingsItemServer, settingsItemToken:
+			m.settingsEditing = true
+			return m, nil
+		case settingsItemLanguage:
+			return m.cycleLanguageSetting()
+		case settingsItemSave:
+			return m.saveConnectionSettings()
+		}
 	}
 	if len(msg.Runes) > 0 {
 		switch msg.Runes[0] {
 		case 'r', 'R':
-			return m.setLanguageSetting(languageRussian)
+			if m.settingsSelected == settingsItemLanguage {
+				return m.setLanguageSetting(languageRussian)
+			}
 		case 'e', 'E':
-			return m.setLanguageSetting(languageEnglish)
+			if m.settingsSelected == settingsItemLanguage {
+				return m.setLanguageSetting(languageEnglish)
+			}
+		case 's', 'S':
+			return m.saveConnectionSettings()
 		}
 	}
 	return m, nil
+}
+
+func (m Model) handleSettingsEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		m.cancel()
+		_ = m.backend.Close()
+		return m, tea.Quit
+	case "esc":
+		m.settingsEditing = false
+		m.settingsDraftServer = m.cfg.ServerURL
+		m.settingsDraftToken = m.cfg.Token
+		return m, nil
+	case "enter":
+		m.settingsEditing = false
+		return m.saveConnectionSettings()
+	case "backspace", "ctrl+h":
+		m.backspaceSettingsDraft()
+		return m, nil
+	case "ctrl+u":
+		m.clearSettingsDraft()
+		return m, nil
+	}
+	if len(msg.Runes) > 0 {
+		m.appendSettingsDraft(string(msg.Runes))
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m *Model) appendSettingsDraft(s string) {
+	switch m.settingsSelected {
+	case settingsItemServer:
+		m.settingsDraftServer += s
+	case settingsItemToken:
+		m.settingsDraftToken += s
+	}
+}
+
+func (m *Model) backspaceSettingsDraft() {
+	switch m.settingsSelected {
+	case settingsItemServer:
+		m.settingsDraftServer = dropLastRune(m.settingsDraftServer)
+	case settingsItemToken:
+		m.settingsDraftToken = dropLastRune(m.settingsDraftToken)
+	}
+}
+
+func (m *Model) clearSettingsDraft() {
+	switch m.settingsSelected {
+	case settingsItemServer:
+		m.settingsDraftServer = ""
+	case settingsItemToken:
+		m.settingsDraftToken = ""
+	}
+}
+
+func dropLastRune(s string) string {
+	runes := []rune(s)
+	if len(runes) == 0 {
+		return s
+	}
+	return string(runes[:len(runes)-1])
+}
+
+func (m Model) saveConnectionSettings() (tea.Model, tea.Cmd) {
+	serverURL := strings.TrimRight(strings.TrimSpace(m.settingsDraftServer), "/")
+	token := strings.TrimSpace(m.settingsDraftToken)
+	if serverURL == "" {
+		m.status = "server URL is required"
+		return m, nil
+	}
+	changedConnection := serverURL != m.cfg.ServerURL || token != m.cfg.Token
+	m.cfg.ServerURL = serverURL
+	m.cfg.Token = token
+	m.status = "connection settings saved"
+	if changedConnection {
+		m.status = "connection settings saved · restart to connect"
+	}
+	return m, saveConnectionSettingsCmd(m.cfg.Config, m.cfg)
 }
 
 func (m Model) cycleLanguageSetting() (tea.Model, tea.Cmd) {

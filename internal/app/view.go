@@ -106,29 +106,68 @@ func (m Model) renderTeamSwitcher(width, height int) string {
 }
 
 func (m Model) renderSettings(width, height int) string {
-	boxWidth := min(max(58, width/2), max(58, width-8))
-	boxHeight := min(10, max(8, height-4))
+	boxWidth := min(max(72, width/2), max(72, width-8))
+	boxHeight := min(14, max(10, height-4))
 	var b strings.Builder
 	b.WriteString(headerStyle.Render(m.tr("Settings")))
-	b.WriteString(muted.Render("  ←/→ " + m.tr("change") + " · enter " + m.tr("change") + " · esc " + m.tr("close")))
+	b.WriteString(muted.Render("  ↑/↓ " + m.tr("move") + " · enter " + m.tr("edit/save") + " · esc " + m.tr("close")))
 	b.WriteString("\n\n")
 
-	label := m.tr("Language")
-	value := m.languageDisplayName()
-	line := fmt.Sprintf("%s: %s", label, value)
-	if m.settingsSelected == settingsItemLanguage {
-		line = pillStyle.Width(boxWidth - 4).Render(truncate(line+"  ‹ ›", boxWidth-6))
-	} else {
-		line = muted.Render(truncate(line, boxWidth-4))
+	rows := []string{
+		m.settingsRow(settingsItemServer, "🌐 "+m.tr("Server URL"), settingsDisplayValue(m.settingsDraftServer, m.tr("not set")), boxWidth-4),
+		m.settingsRow(settingsItemToken, "🔑 "+m.tr("Token"), maskedToken(m.settingsDraftToken, m.tr("not set")), boxWidth-4),
+		m.settingsRow(settingsItemLanguage, "🌍 "+m.tr("Language"), m.languageDisplayName(), boxWidth-4),
+		m.settingsRow(settingsItemSave, "💾 "+m.tr("Save connection"), m.tr("save to config"), boxWidth-4),
 	}
-	b.WriteString(line)
+	for _, row := range rows {
+		b.WriteString(row)
+		b.WriteString("\n")
+	}
 	b.WriteString("\n")
-	b.WriteString(muted.Render(m.tr("press r for Russian, e for English")))
-	b.WriteString("\n\n")
-	b.WriteString(muted.Render(m.tr("Settings are saved to config.")))
+	if m.settingsEditing {
+		b.WriteString(muted.Render(m.tr("editing: type, enter save, esc cancel, ctrl+u clear")))
+	} else {
+		b.WriteString(muted.Render(m.tr("Connection changes are used after restart.")))
+	}
 
 	box := boxStyle.Width(boxWidth).Height(boxHeight).Render(b.String())
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
+func (m Model) settingsRow(index int, label, value string, width int) string {
+	cursor := ""
+	if m.settingsEditing && m.settingsSelected == index {
+		cursor = "_"
+	}
+	line := fmt.Sprintf("%s: %s%s", label, value, cursor)
+	if index == settingsItemLanguage {
+		line += "  ‹ ›"
+	}
+	line = truncate(line, max(1, width-2))
+	if m.settingsSelected == index {
+		return pillStyle.Width(width).Render(line)
+	}
+	return muted.Render(truncate(line, width))
+}
+
+func settingsDisplayValue(value, empty string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return empty
+	}
+	return sanitizeTerminal(value)
+}
+
+func maskedToken(token, empty string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return empty
+	}
+	runes := []rune(token)
+	if len(runes) <= 8 {
+		return strings.Repeat("•", len(runes))
+	}
+	return string(runes[:4]) + strings.Repeat("•", 8) + string(runes[len(runes)-4:])
 }
 
 func (m Model) renderInfo(width, height int) string {

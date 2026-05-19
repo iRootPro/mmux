@@ -88,6 +88,9 @@ mmux doctor
 mmux
 ```
 
+You can also open settings inside the TUI with `alt+,` and save the server URL/token there.
+Connection changes are applied after restarting `mmux`.
+
 To save a browser session token:
 
 ```bash
