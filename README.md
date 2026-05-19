@@ -15,6 +15,21 @@ Current MVP:
 - direct messages sorted by most recent activity
 - mock mode for UI work without credentials
 
+## Install
+
+With Homebrew:
+
+```bash
+brew install irootpro/tap/mmux
+```
+
+This installs both commands:
+
+```bash
+mmux --help
+band-tui --help
+```
+
 ## Run
 
 ```bash
