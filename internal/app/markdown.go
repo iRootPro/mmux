@@ -19,7 +19,9 @@ var (
 	inlineCodeStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "250"}).Background(lipgloss.AdaptiveColor{Light: "254", Dark: "236"})
 	codeBlockStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "250"})
 	quoteBarStyle   = lipgloss.NewStyle().Foreground(colorAccent)
-	linkStyle       = lipgloss.NewStyle().Foreground(colorAccent).Underline(true)
+	// Avoid terminal underline artifacts on long wrapped URLs; accent color is enough
+	// to distinguish links without drawing horizontal lines through message blocks.
+	linkStyle = lipgloss.NewStyle().Foreground(colorAccent)
 )
 
 func renderMarkdownMessage(message string, width int) string {

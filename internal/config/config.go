@@ -18,6 +18,7 @@ type Config struct {
 	Password         string   `json:"password,omitempty"`
 	Team             string   `json:"team,omitempty"`
 	Channel          string   `json:"channel,omitempty"`
+	Language         string   `json:"language,omitempty"`
 	FavoriteChannels []string `json:"favorite_channels,omitempty"`
 	Config           string   `json:"-"`
 	Mock             bool     `json:"-"`
@@ -41,6 +42,7 @@ func Parse(args []string) (Options, error) {
 	fs.StringVar(&cfg.Password, "password", "", "password for login/password auth")
 	fs.StringVar(&cfg.Team, "team", "", "preferred team name or ID")
 	fs.StringVar(&cfg.Channel, "channel", "", "preferred channel name or ID")
+	fs.StringVar(&cfg.Language, "lang", "", "UI language: en or ru")
 	fs.BoolVar(&cfg.Mock, "mock", false, "run against built-in mock data")
 
 	cmd := "tui"
@@ -126,6 +128,7 @@ func envConfig() Config {
 		Password:  getenvAny("BAND_PASSWORD", "MATTERMOST_PASSWORD"),
 		Team:      getenvAny("BAND_TEAM", "MATTERMOST_TEAM"),
 		Channel:   getenvAny("BAND_CHANNEL", "MATTERMOST_CHANNEL"),
+		Language:  getenvAny("BAND_LANG", "BAND_LANGUAGE"),
 	}
 }
 
@@ -158,6 +161,9 @@ func merge(configs ...Config) Config {
 		}
 		if cfg.Channel != "" {
 			out.Channel = cfg.Channel
+		}
+		if cfg.Language != "" {
+			out.Language = cfg.Language
 		}
 		if len(cfg.FavoriteChannels) > 0 {
 			out.FavoriteChannels = append([]string(nil), cfg.FavoriteChannels...)

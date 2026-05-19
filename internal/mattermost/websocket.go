@@ -104,6 +104,9 @@ func (c *Client) watchOnce(ctx context.Context, events chan<- domain.Event) erro
 	}); err != nil {
 		return wrapRequestError("websocket auth", err)
 	}
+	stopPing := make(chan struct{})
+	defer close(stopPing)
+	startWebsocketHeartbeat(ctx, conn, stopPing)
 	authenticated := false
 	for {
 		_, b, err := conn.ReadMessage()
@@ -152,6 +155,18 @@ func (c *Client) watchOnce(ctx context.Context, events chan<- domain.Event) erro
 			if !sendEvent(ctx, events, domain.Event{Kind: domain.EventPost, Post: out}) {
 				return ctx.Err()
 			}
+		case "reaction_added", "reaction_removed":
+			reaction, ok := parseWSReaction(msg.Data.Reaction)
+			if !ok {
+				continue
+			}
+			kind := domain.EventReactionAdded
+			if msg.Event == "reaction_removed" {
+				kind = domain.EventReactionRemoved
+			}
+			if !sendEvent(ctx, events, domain.Event{Kind: kind, PostID: reaction.PostID, EmojiName: reaction.EmojiName, UserID: reaction.UserID}) {
+				return ctx.Err()
+			}
 		case "status_change":
 			if msg.Data.UserID != "" && msg.Data.Status != "" {
 				if !sendEvent(ctx, events, domain.Event{Kind: domain.EventStatus, UserID: msg.Data.UserID, Status: msg.Data.Status}) {
@@ -161,6 +176,36 @@ func (c *Client) watchOnce(ctx context.Context, events chan<- domain.Event) erro
 		}
 	}
 }
+
+const (
+	websocketPongWait   = 75 * time.Second
+	websocketPingPeriod = 25 * time.Second
+)
+
+func startWebsocketHeartbeat(ctx context.Context, conn *websocket.Conn, stop <-chan struct{}) {
+	_ = conn.SetReadDeadline(time.Now().Add(websocketPongWait))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(websocketPongWait))
+	})
+	go func() {
+		ticker := time.NewTicker(websocketPingPeriod)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-stop:
+				return
+			case <-ticker.C:
+				deadline := time.Now().Add(10 * time.Second)
+				if err := conn.WriteControl(websocket.PingMessage, nil, deadline); err != nil {
+					return
+				}
+			}
+		}
+	}()
+}
+
 func watchFailureState(err error) (domain.ConnectionState, bool) {
 	var backendErr *domain.BackendError
 	if errors.As(err, &backendErr) && backendErr.Kind == domain.BackendErrorAuth && !backendErr.Retryable {
@@ -183,6 +228,20 @@ func sendEvent(ctx context.Context, events chan<- domain.Event, ev domain.Event)
 	case events <- ev:
 		return true
 	}
+}
+
+func parseWSReaction(raw string) (mmReaction, bool) {
+	if raw == "" {
+		return mmReaction{}, false
+	}
+	var reaction mmReaction
+	if err := json.Unmarshal([]byte(raw), &reaction); err != nil {
+		return mmReaction{}, false
+	}
+	if reaction.PostID == "" || reaction.EmojiName == "" {
+		return mmReaction{}, false
+	}
+	return reaction, true
 }
 
 func (c *Client) mentionsCurrentUser(raw string) bool {
@@ -209,6 +268,7 @@ type wsMessage struct {
 	SeqReply int    `json:"seq_reply"`
 	Data     struct {
 		Post     string `json:"post"`
+		Reaction string `json:"reaction"`
 		Mentions string `json:"mentions"`
 		UserID   string `json:"user_id"`
 		Status   string `json:"status"`

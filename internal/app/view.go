@@ -20,6 +20,7 @@ var (
 
 	baseStyle        = lipgloss.NewStyle().Foreground(colorText)
 	muted            = lipgloss.NewStyle().Foreground(colorMuted)
+	subtle           = lipgloss.NewStyle().Foreground(colorSubtle)
 	accent           = lipgloss.NewStyle().Foreground(colorAccent)
 	errorText        = lipgloss.NewStyle().Foreground(colorError)
 	pillStyle        = lipgloss.NewStyle().Foreground(colorText).Background(lipgloss.AdaptiveColor{Light: "254", Dark: "236"}).Padding(0, 1)
@@ -93,6 +94,32 @@ func (m Model) renderTeamSwitcher(width, height int) string {
 			b.WriteString("\n")
 		}
 	}
+	box := boxStyle.Width(boxWidth).Height(boxHeight).Render(b.String())
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
+func (m Model) renderSettings(width, height int) string {
+	boxWidth := min(max(58, width/2), max(58, width-8))
+	boxHeight := min(10, max(8, height-4))
+	var b strings.Builder
+	b.WriteString(headerStyle.Render(m.tr("Settings")))
+	b.WriteString(muted.Render("  ←/→ " + m.tr("change") + " · enter " + m.tr("change") + " · esc " + m.tr("close")))
+	b.WriteString("\n\n")
+
+	label := m.tr("Language")
+	value := m.languageDisplayName()
+	line := fmt.Sprintf("%s: %s", label, value)
+	if m.settingsSelected == settingsItemLanguage {
+		line = pillStyle.Width(boxWidth - 4).Render(truncate(line+"  ‹ ›", boxWidth-6))
+	} else {
+		line = muted.Render(truncate(line, boxWidth-4))
+	}
+	b.WriteString(line)
+	b.WriteString("\n")
+	b.WriteString(muted.Render(m.tr("press r for Russian, e for English")))
+	b.WriteString("\n\n")
+	b.WriteString(muted.Render(m.tr("Settings are saved to config.")))
+
 	box := boxStyle.Width(boxWidth).Height(boxHeight).Render(b.String())
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
 }
@@ -219,24 +246,94 @@ func (m Model) renderActivity(width, height int) string {
 }
 
 func (m Model) renderReactionPicker(width, height int) string {
-	boxWidth := min(max(34, width/4), max(34, width-8))
-	boxHeight := min(max(8, len(defaultReactions)+4), max(8, height-4))
+	post, _ := m.selectedReactionTarget()
+	options := m.reactionOptionsForPost(post)
+	querying := strings.TrimSpace(m.reactionPickerQuery) != ""
+	cols := m.reactionPickerColumns(options)
+	cellWidth := 8
+	if querying {
+		cellWidth = 34
+	}
+	gridRows := max(1, (len(options)+cols-1)/cols)
+	visibleRows := min(gridRows, 8)
+	boxWidth := min(max(72, cols*cellWidth+4), max(72, width-8))
+	boxHeight := min(max(10, visibleRows+7), max(10, height-4))
+	visibleRows = max(1, boxHeight-7)
+	selectedRow := 0
+	if len(options) > 0 {
+		m.reactionPickerSelected = min(max(0, m.reactionPickerSelected), len(options)-1)
+		selectedRow = m.reactionPickerSelected / cols
+	}
+	startRow := 0
+	if selectedRow >= visibleRows {
+		startRow = selectedRow - visibleRows + 1
+	}
 	var b strings.Builder
-	b.WriteString(headerStyle.Render("Reactions"))
-	b.WriteString(muted.Render("  enter toggle · esc close"))
+	b.WriteString(headerStyle.Render(m.tr("Reactions")))
+	b.WriteString(muted.Render(m.tr("type search · arrows move · enter toggle · esc close")))
+	b.WriteString("\n")
+	if querying {
+		b.WriteString(accent.Render(m.tr("filter") + ": "))
+		b.WriteString(m.reactionPickerQuery)
+	} else {
+		b.WriteString(muted.Render(m.tr("filter: all available + reactions on this post")))
+	}
 	b.WriteString("\n\n")
-	for i, reaction := range defaultReactions {
-		line := reaction.Glyph + "  " + reaction.Name
-		if i == m.reactionPickerSelected {
-			line = pillStyle.Width(boxWidth - 4).Render(truncate(line, boxWidth-6))
-		} else {
-			line = muted.Render(truncate(line, boxWidth-4))
-		}
-		b.WriteString(line)
+	if startRow > 0 {
+		b.WriteString(muted.Render("…"))
 		b.WriteString("\n")
+	}
+	for row := startRow; row < gridRows && row < startRow+visibleRows; row++ {
+		var cells []string
+		for col := 0; col < cols; col++ {
+			idx := row*cols + col
+			if idx >= len(options) {
+				break
+			}
+			cell := reactionPickerCell(options[idx], cellWidth, idx == m.reactionPickerSelected, querying)
+			cells = append(cells, cell)
+		}
+		b.WriteString(strings.Join(cells, ""))
+		b.WriteString("\n")
+	}
+	if len(options) == 0 {
+		b.WriteString(muted.Render(m.tr("No matching reactions.")))
+		b.WriteString("\n")
+	} else if startRow+visibleRows < gridRows {
+		b.WriteString(muted.Render("…"))
+		b.WriteString("\n")
+	}
+	if len(options) > 0 {
+		selected := options[m.reactionPickerSelected]
+		b.WriteString("\n")
+		b.WriteString(muted.Render(m.tr("selected") + ": "))
+		b.WriteString(accent.Render(reactionDisplayName(selected.Name)))
+		b.WriteString(muted.Render(" :" + selected.Name + ":"))
 	}
 	box := boxStyle.Width(boxWidth).Height(boxHeight).Render(b.String())
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
+func reactionPickerCell(option reactionOption, width int, selected bool, showName bool) string {
+	label := reactionDisplayName(option.Name)
+	if option.Glyph != "" {
+		label = option.Glyph
+	}
+	if showName {
+		label = label + " " + ":" + option.Name + ":"
+	}
+	label = truncate(label, max(1, width-2))
+	style := muted.Width(width).Align(lipgloss.Left).PaddingRight(1)
+	if !showName {
+		style = style.Align(lipgloss.Center).PaddingRight(0)
+	}
+	if selected {
+		style = pillStyle.Width(width).Align(lipgloss.Left).PaddingRight(1)
+		if !showName {
+			style = style.Align(lipgloss.Center).PaddingRight(0)
+		}
+	}
+	return style.Render(label)
 }
 
 func renderReactionBadges(post domain.Post) string {
@@ -244,31 +341,11 @@ func renderReactionBadges(post domain.Post) string {
 		return ""
 	}
 	var parts []string
-	seen := map[string]struct{}{}
-	for _, option := range defaultReactions {
-		for _, reaction := range post.Reactions {
-			if reaction.Name != option.Name || reaction.Count <= 0 {
-				continue
-			}
-			label := option.Glyph + " " + fmt.Sprintf("%d", reaction.Count)
-			if reaction.Reacted {
-				label = pillStyle.Render(label)
-			} else {
-				label = muted.Render(label)
-			}
-			parts = append(parts, label)
-			seen[reaction.Name] = struct{}{}
-			break
-		}
-	}
 	for _, reaction := range post.Reactions {
 		if reaction.Count <= 0 {
 			continue
 		}
-		if _, ok := seen[reaction.Name]; ok {
-			continue
-		}
-		label := reaction.Name + " " + fmt.Sprintf("%d", reaction.Count)
+		label := reactionDisplayName(reaction.Name) + " " + fmt.Sprintf("%d", reaction.Count)
 		if reaction.Reacted {
 			label = pillStyle.Render(label)
 		} else {
@@ -284,8 +361,8 @@ func (m Model) renderTriage(width, height int) string {
 	visibleItems := min(max(1, len(m.triageItems)), 12)
 	boxHeight := min(max(8, visibleItems+5), max(8, height-4))
 	var b strings.Builder
-	b.WriteString(headerStyle.Render(fmt.Sprintf("Triage %d", len(m.triageItems))))
-	b.WriteString(muted.Render("  enter open · d done · esc close"))
+	b.WriteString(headerStyle.Render(fmt.Sprintf("%s %d", m.tr("Triage"), len(m.triageItems))))
+	b.WriteString(muted.Render("  enter " + m.tr("open") + " · d " + m.tr("done") + " · esc " + m.tr("close")))
 	b.WriteString("\n\n")
 
 	limit := max(1, boxHeight-5)
@@ -308,7 +385,7 @@ func (m Model) renderTriage(width, height int) string {
 		b.WriteString("\n")
 	}
 	if len(m.triageItems) == 0 {
-		b.WriteString(muted.Render("Nothing to triage."))
+		b.WriteString(muted.Render(m.tr("Nothing to triage.")))
 		b.WriteString("\n")
 	} else if start+limit < len(m.triageItems) {
 		b.WriteString(muted.Render("…"))
@@ -475,13 +552,15 @@ func (m Model) renderThreadOverlay(width, height int) string {
 
 func (m Model) renderThreadHeader(width int) string {
 	replies := m.threadReplyCount()
-	title := fmt.Sprintf("Thread · %d %s", replies, plural(replies, "reply", "replies"))
+	title := fmt.Sprintf("%s · %d %s", m.tr("Thread"), replies, m.plural(replies, "reply", "replies"))
 	if m.threadLoading {
 		title = "Thread · loading…"
 	}
-	help := "tab reply · esc close · j/k select · R react"
+	help := "tab reply · alt+4 messages · alt+3 reply · alt+2 timeline · esc close · R react"
 	if m.threadFocusComposer {
-		help = "tab messages · enter reply · ctrl+j newline"
+		help = "alt+4 messages · alt+2 timeline · enter reply · ctrl+j newline"
+	} else if m.focus == focusTimeline {
+		help = "alt+4 thread · alt+3 reply · esc close thread"
 	}
 	rootText := "root: loading…"
 	if root, ok := m.threadRootPost(); ok {
@@ -506,6 +585,10 @@ func (m Model) renderThreadHeader(width int) string {
 	return strings.Join([]string{"", info, helpLine}, "\n")
 }
 
+func (m Model) plural(n int, one, many string) string {
+	return m.tr(plural(n, one, many))
+}
+
 func plural(n int, one, many string) string {
 	if n == 1 {
 		return one
@@ -513,15 +596,15 @@ func plural(n int, one, many string) string {
 	return many
 }
 
-func replyCountLabel(count int) string {
-	return fmt.Sprintf("  ↳ %d %s", count, plural(count, "reply", "replies"))
+func (m Model) replyCountLabel(count int) string {
+	return fmt.Sprintf("  ↳ %d %s", count, m.plural(count, "reply", "replies"))
 }
 
 func (m Model) renderThreadComposer(width int) string {
 	labelText := m.threadComposerLabel(max(10, width-4))
-	placeholder := "Write a reply…"
+	placeholder := m.tr("Write a reply…")
 	if !m.threadFocusComposer {
-		labelText = truncate("reply composer inactive · tab reply", max(10, width-4))
+		labelText = truncate(m.tr("reply composer inactive")+" · "+m.tr("tab reply"), max(10, width-4))
 		placeholder = ""
 	}
 	label := muted.Render(labelText)
@@ -537,7 +620,7 @@ func (m Model) renderThreadComposer(width int) string {
 }
 
 func (m Model) threadComposerLabel(width int) string {
-	prefix := "reply in thread"
+	prefix := m.tr("reply in thread")
 	if root, ok := m.threadRootPost(); ok {
 		user := root.Username
 		if user == "" {
@@ -545,12 +628,12 @@ func (m Model) threadComposerLabel(width int) string {
 		}
 		text := strings.ReplaceAll(strings.TrimSpace(sanitizeMessageText(root.Message)), "\n", " ")
 		if text != "" {
-			prefix = "reply to: " + user + " · " + text
+			prefix = m.tr("reply to") + ": " + user + " · " + text
 		} else {
-			prefix = "reply to: " + user
+			prefix = m.tr("reply to") + ": " + user
 		}
 	}
-	return truncate(prefix+" · enter send · ctrl+j newline", width)
+	return truncate(prefix+" · "+m.tr("enter send")+" · "+m.tr("ctrl+j newline"), width)
 }
 
 func (m Model) threadRootPost() (domain.Post, bool) {
@@ -610,25 +693,14 @@ func (m Model) renderThreadPostsWithOffsets(width int) (string, []int) {
 		grouped := hasPrevRendered && shouldGroupTimelinePost(prevRendered, post)
 		selected := idx == m.threadSelected && !m.threadFocusComposer
 		if !grouped {
-			user := sanitizeTerminal(post.Username)
-			if user == "" {
-				user = sanitizeTerminal(shortID(post.UserID))
-			}
-			header := accent.Render(user) + muted.Render("  "+formatTime(post.CreateAt))
-			if post.Unread || post.Mentioned || post.ThreadUnread {
-				header = accent.Render("● ") + header
-			}
-			if post.ThreadUnread {
-				header += accent.Render("  ● new replies")
-			}
-			writeLine(m.renderPostLine(header, selected))
+			writeLine(m.renderPostLine(m.renderThreadPostHeader(post, grouped, selected), selected))
 		}
-		body := renderMarkdownMessage(post.Message, max(20, width-4))
-		for _, line := range strings.Split(body, "\n") {
-			writeLine(m.renderPostLine(baseStyle.Render(line), selected))
+		body := renderMarkdownMessage(post.Message, max(20, width-6))
+		for _, line := range renderMessageBodyLines(post, body, grouped, selected) {
+			writeLine(m.renderPostLine(line, selected))
 		}
 		if badges := renderReactionBadges(post); badges != "" {
-			writeLine(m.renderPostLine(badges, selected))
+			writeLine(m.renderPostLine(renderMessageBodyLine(badges, post, selected), selected))
 		}
 		repliesWritten++
 		prevRendered = post
@@ -659,11 +731,11 @@ func (m Model) renderSwitcher(width, height int) string {
 	var b strings.Builder
 	query := m.switcherQuery
 	if query == "" {
-		query = "type to search…"
+		query = m.tr("type command or channel…")
 	}
-	b.WriteString(headerStyle.Render("Jump to channel"))
+	b.WriteString(headerStyle.Render(m.tr("Go to")))
 	b.WriteString("\n")
-	b.WriteString(muted.Render("ctrl+p/ctrl+k · enter open · esc close"))
+	b.WriteString(muted.Render("ctrl+p/ctrl+k · enter " + m.tr("open") + " · esc " + m.tr("close")))
 	b.WriteString("\n\n")
 	b.WriteString(accent.Render("› "))
 	b.WriteString(sanitizeTerminal(query))
@@ -690,7 +762,7 @@ func (m Model) renderSwitcher(width, height int) string {
 		b.WriteString("\n")
 	}
 	if len(indexes) == 0 {
-		b.WriteString(muted.Render("No matches"))
+		b.WriteString(muted.Render(m.tr("No matches")))
 		b.WriteString("\n")
 	} else if start+limit < len(indexes) {
 		b.WriteString(muted.Render("…"))
@@ -701,7 +773,31 @@ func (m Model) renderSwitcher(width, height int) string {
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
 }
 
+func (m Model) switcherCommandLine(index int) string {
+	switch index {
+	case switcherGoSidebar:
+		return m.tr("Go: Sidebar") + "  · alt+1"
+	case switcherGoTimeline:
+		return m.tr("Go: Timeline") + " · alt+2"
+	case switcherGoComposer:
+		return m.tr("Go: Composer") + " · alt+3"
+	case switcherGoThread:
+		return m.tr("Go: Thread messages") + " · alt+4"
+	case switcherOpenTriage:
+		return m.tr("Open: Triage inbox") + " · ctrl+u"
+	case switcherOpenMentions:
+		return m.tr("Open: Mentions inbox") + " · a"
+	case switcherOpenSettings:
+		return m.tr("Open: Settings") + " · alt+,"
+	default:
+		return m.tr("Go: unknown")
+	}
+}
+
 func (m Model) renderSwitcherLine(index, width int) string {
+	if index < 0 {
+		return truncate(m.switcherCommandLine(index), width)
+	}
 	ch := m.channels[index]
 	prefix := "#"
 	if ch.Type == "D" {
@@ -713,13 +809,13 @@ func (m Model) renderSwitcherLine(index, width int) string {
 	if name == "" {
 		name = sanitizeTerminal(ch.Name)
 	}
-	section := "channels"
+	section := m.tr("channels")
 	if m.favoriteChannels[ch.ID] {
-		section = "favorite"
+		section = m.tr("favorite")
 	} else if ch.Type == "D" {
-		section = "direct"
+		section = m.tr("direct")
 	} else if ch.Type == "G" {
-		section = "group"
+		section = m.tr("group")
 	}
 	line := fmt.Sprintf("%s%s %s", presenceGlyphPlain(ch.Status), prefix, name)
 	if m.favoriteChannels[ch.ID] {
@@ -1083,7 +1179,7 @@ func (m Model) renderMain(width, height int) string {
 	separator := muted.Render(strings.Repeat("─", max(0, width-2)))
 	viewportHeight := max(3, height-lipgloss.Height(header)-composerHeight-lipgloss.Height(separator))
 	viewportStyle := lipgloss.NewStyle().Width(width-1).Height(viewportHeight).Padding(0, 1)
-	if m.focus == focusTimeline && !m.threadOpen {
+	if m.focus == focusTimeline {
 		viewportStyle = viewportStyle.Border(lipgloss.NormalBorder(), false, false, false, true).BorderForeground(colorAccent).PaddingLeft(1)
 	}
 	viewportBox := viewportStyle.Render(m.viewport.View())
@@ -1186,7 +1282,7 @@ func (m Model) channelMeta(ch domain.Channel) string {
 		parts = append(parts, statusLabel(ch.Status))
 	}
 	if len(m.posts) > 0 {
-		parts = append(parts, fmt.Sprintf("%d %s", len(m.posts), plural(len(m.posts), "message", "messages")))
+		parts = append(parts, fmt.Sprintf("%d %s", len(m.posts), m.plural(len(m.posts), "message", "messages")))
 	}
 	if ch.Mentions > 0 {
 		parts = append(parts, fmt.Sprintf("@%d", ch.Mentions))
@@ -1224,7 +1320,7 @@ func nonEmpty(values []string) []string {
 func (m Model) renderComposer(width int) string {
 	labelText := m.composerLabel(max(10, width-4))
 	if m.focus != focusComposer {
-		labelText = truncate("composer inactive · tab focus input", max(10, width-4))
+		labelText = truncate(m.tr("composer inactive")+" · "+m.tr("tab focus input"), max(10, width-4))
 	}
 	label := muted.Render(labelText)
 	// Always use textarea.View(), including for the placeholder. Render a local
@@ -1243,7 +1339,7 @@ func (m Model) renderComposer(width int) string {
 }
 
 func (m Model) composerLabel(width int) string {
-	target := "current channel"
+	target := m.tr("current channel")
 	if len(m.channels) > 0 && m.selectedChannel >= 0 && m.selectedChannel < len(m.channels) {
 		ch := m.channels[m.selectedChannel]
 		name := sanitizeTerminal(ch.DisplayName)
@@ -1261,16 +1357,16 @@ func (m Model) composerLabel(width int) string {
 			target = prefix + " " + name
 		}
 	}
-	return truncate("to "+target+" · enter send · ctrl+j newline", width)
+	return truncate(m.tr("to")+" "+target+" · "+m.tr("enter send")+" · "+m.tr("ctrl+j newline"), width)
 }
 
 func (m Model) renderStatus(width int) string {
-	status := m.status
+	status := m.tr(m.status)
 	if m.threadOpen {
 		status = m.threadStatusLine()
 	} else {
 		if status == "" {
-			status = "ready"
+			status = m.tr("ready")
 		}
 		if m.loading {
 			status = "• " + status
@@ -1280,16 +1376,16 @@ func (m Model) renderStatus(width int) string {
 		}
 	}
 	if net := m.connectionStatusText(); net != "" {
-		status = "net: " + net + " · " + status
+		status = m.tr("net") + ": " + net + " · " + status
 	}
 	if scope := m.sidebarTitle(); scope != "" {
-		status = "scope: " + scope + " · " + status
+		status = m.tr("scope") + ": " + scope + " · " + status
 	}
 	if strings.Contains(status, "connected") || strings.Contains(status, "sent") {
 		status = lipgloss.NewStyle().Foreground(colorSuccess).Render(status)
 	}
 	if m.err != "" {
-		status += "  " + errorText.Render(m.err)
+		status += "  " + errorText.Render(m.tr(m.err))
 	}
 	if badge := m.notificationBadge(); badge != "" {
 		status += "  " + accent.Render(badge)
@@ -1298,34 +1394,58 @@ func (m Model) renderStatus(width int) string {
 }
 
 func (m Model) focusStatusHint() string {
+	if m.isRussian() {
+		switch m.focus {
+		case focusSidebar:
+			return "сайдбар · enter открыть · / фильтр · alt+2 лента · alt+3 ввод"
+		case focusTimeline:
+			return "лента · j/k выбрать · t тред · y копия · n непрочит. · alt+1 сайдбар · alt+3 ввод"
+		case focusComposer:
+			return m.timelinePositionLabel() + " · alt+1 сайдбар · alt+2 лента"
+		default:
+			return "? помощь"
+		}
+	}
 	switch m.focus {
 	case focusSidebar:
-		return "sidebar · enter open · / filter · tab timeline"
+		return "sidebar · enter open · / filter · alt+2 timeline · alt+3 compose"
 	case focusTimeline:
-		return "timeline · j/k select · t thread · y copy · n unread"
+		return "timeline · j/k select · t thread · y copy · n unread · alt+1 sidebar · alt+3 compose"
 	case focusComposer:
-		return m.timelinePositionLabel()
+		return m.timelinePositionLabel() + " · alt+1 sidebar · alt+2 timeline"
 	default:
 		return "? help"
 	}
 }
 
 func (m Model) threadStatusLine() string {
-	count := "loading…"
+	count := m.tr("loading…")
 	if !m.threadLoading {
 		count = fmt.Sprintf("%d messages", len(m.threadPosts))
 	}
-	if m.threadFocusComposer {
-		return "thread reply · " + count + " · tab messages · esc close"
+	if m.isRussian() {
+		if m.focus == focusTimeline {
+			return "лента · " + count + " в треде · alt+3 ответ · alt+4 тред · esc закрыть тред"
+		}
+		if m.threadFocusComposer {
+			return "ответ в тред · " + count + " · tab сообщения · alt+4 сообщения · alt+2 лента · esc закрыть/к сообщениям"
+		}
+		return "сообщения треда · " + count + " · tab ответ · alt+3 ответ · alt+2 лента · esc закрыть"
 	}
-	return "thread messages · " + count + " · tab reply · esc close"
+	if m.focus == focusTimeline {
+		return "timeline · " + count + " in thread · alt+3 reply · alt+4 thread · esc close thread"
+	}
+	if m.threadFocusComposer {
+		return "thread reply · " + count + " · tab messages · alt+4 messages · alt+2 timeline · esc close/messages"
+	}
+	return "thread messages · " + count + " · tab reply · alt+3 reply · alt+2 timeline · esc close"
 }
 
 func (m Model) timelinePositionLabel() string {
 	if m.viewport.TotalLineCount() == 0 || m.viewport.AtBottom() {
-		return "at latest"
+		return m.tr("at latest")
 	}
-	return "scrolled"
+	return m.tr("scrolled")
 }
 
 func (m Model) notificationBadge() string {
@@ -1379,9 +1499,9 @@ func samePostAuthor(a, b domain.Post) bool {
 func (m Model) renderPosts() (string, []int) {
 	if len(m.posts) == 0 {
 		if m.loading || strings.Contains(m.status, "loading") || strings.Contains(m.status, "refreshing") {
-			return muted.Render("Loading messages…"), nil
+			return muted.Render(m.tr("Loading messages…")), nil
 		}
-		return muted.Render("No messages yet."), nil
+		return muted.Render(m.tr("No messages yet.")), nil
 	}
 	var b strings.Builder
 	lineNo := 0
@@ -1393,13 +1513,13 @@ func (m Model) renderPosts() (string, []int) {
 	writeBlank := func() { writeLine("") }
 
 	if m.loadingOlder {
-		writeLine(muted.Render("Loading older messages…"))
+		writeLine(muted.Render(m.tr("Loading older messages…")))
 		writeBlank()
 	} else if !m.hasOlder {
-		writeLine(muted.Render("Beginning of history"))
+		writeLine(muted.Render(m.tr("Beginning of history")))
 		writeBlank()
 	} else {
-		writeLine(muted.Render("Press [ to load older messages"))
+		writeLine(muted.Render(m.tr("Press [ to load older messages")))
 		writeBlank()
 	}
 
@@ -1412,46 +1532,109 @@ func (m Model) renderPosts() (string, []int) {
 			if lastDate != "" {
 				writeBlank()
 			}
-			writeLine(muted.Render("──── " + date + " "))
+			writeLine(renderTimelineSeparator(m.tr(date), m.viewport.Width))
 			writeBlank()
 			lastDate = date
 		}
 		if i == importantIndex {
-			writeLine(accent.Render("──── new messages " + strings.Repeat("─", max(0, m.viewport.Width-20))))
+			writeLine(accent.Render("──── " + m.tr("new messages") + " " + strings.Repeat("─", max(0, m.viewport.Width-20))))
 			writeBlank()
 		}
 		grouped := i > 0 && shouldGroupTimelinePost(m.posts[i-1], p)
 		offsets[i] = lineNo
 		selected := i == m.selectedPost && m.focus == focusTimeline
 		if !grouped {
-			user := sanitizeTerminal(p.Username)
-			if user == "" {
-				user = sanitizeTerminal(shortID(p.UserID))
-			}
-			header := accent.Render(user) + muted.Render("  "+formatTime(p.CreateAt))
-			if p.Unread || p.Mentioned || p.ThreadUnread {
-				header = accent.Render("● ") + header
-			}
-			if p.ReplyCount > 0 {
-				header += accent.Render(replyCountLabel(p.ReplyCount))
-				if p.ThreadUnread {
-					header += accent.Render("  ● new replies")
-				}
-			}
-			writeLine(m.renderPostLine(header, selected))
+			writeLine(m.renderPostLine(m.renderTimelinePostHeader(p, grouped, selected), selected))
 		}
-		body := renderMarkdownMessage(p.Message, max(20, m.viewport.Width-6))
-		for _, line := range strings.Split(body, "\n") {
-			writeLine(m.renderPostLine(baseStyle.Render(line), selected))
+		body := renderMarkdownMessage(p.Message, max(20, m.viewport.Width-8))
+		for _, line := range renderMessageBodyLines(p, body, grouped, selected) {
+			writeLine(m.renderPostLine(line, selected))
 		}
 		if badges := renderReactionBadges(p); badges != "" {
-			writeLine(m.renderPostLine(badges, selected))
+			writeLine(m.renderPostLine(renderMessageBodyLine(badges, p, selected), selected))
 		}
 		if i < len(m.posts)-1 && !shouldGroupTimelinePost(p, m.posts[i+1]) {
 			writeBlank()
 		}
 	}
 	return strings.TrimRight(b.String(), "\n"), offsets
+}
+
+func renderTimelineSeparator(label string, width int) string {
+	label = " " + label + " "
+	lineWidth := max(12, width-6)
+	left := max(4, (lineWidth-len([]rune(label)))/2)
+	right := max(4, lineWidth-left-len([]rune(label)))
+	return muted.Render(strings.Repeat("─", left) + label + strings.Repeat("─", right))
+}
+
+func (m Model) renderThreadPostHeader(post domain.Post, grouped bool, selected bool) string {
+	if grouped {
+		return renderMessageGutter(post, selected, false) + muted.Render(formatTime(post.CreateAt))
+	}
+	user := sanitizeTerminal(post.Username)
+	if user == "" {
+		user = sanitizeTerminal(shortID(post.UserID))
+	}
+	header := renderMessageGutter(post, selected, true) + accent.Render(user) + muted.Render("  "+formatTime(post.CreateAt))
+	if post.ThreadUnread {
+		header += accent.Render("  ● new replies")
+	}
+	return header
+}
+
+func (m Model) renderTimelinePostHeader(post domain.Post, grouped bool, selected bool) string {
+	if grouped {
+		return renderMessageGutter(post, selected, false) + muted.Render(formatTime(post.CreateAt))
+	}
+	user := sanitizeTerminal(post.Username)
+	if user == "" {
+		user = sanitizeTerminal(shortID(post.UserID))
+	}
+	header := renderMessageGutter(post, selected, true) + accent.Render(user) + muted.Render("  "+formatTime(post.CreateAt))
+	if post.ReplyCount > 0 {
+		header += accent.Render(m.replyCountLabel(post.ReplyCount))
+		if post.ThreadUnread {
+			header += accent.Render("  ● new replies")
+		}
+	}
+	return header
+}
+
+func renderMessageGutter(post domain.Post, selected bool, includeImportantDot bool) string {
+	important := post.Unread || post.Mentioned || post.ThreadUnread
+	if selected || important {
+		if includeImportantDot && important {
+			return accent.Render("┃ ● ")
+		}
+		return accent.Render("┃ ")
+	}
+	return subtle.Render("▏ ")
+}
+
+func renderMessageBodyLines(post domain.Post, body string, grouped bool, selected bool) []string {
+	bodyLines := strings.Split(body, "\n")
+	out := make([]string, 0, len(bodyLines))
+	if !grouped {
+		for _, line := range bodyLines {
+			out = append(out, renderMessageBodyLine(line, post, selected))
+		}
+		return out
+	}
+	timestamp := formatTime(post.CreateAt)
+	indent := strings.Repeat(" ", len([]rune(timestamp))+2)
+	for i, line := range bodyLines {
+		if i == 0 {
+			out = append(out, renderMessageGutter(post, selected, false)+subtle.Render(timestamp+"  ")+line)
+			continue
+		}
+		out = append(out, renderMessageGutter(post, selected, false)+subtle.Render(indent)+line)
+	}
+	return out
+}
+
+func renderMessageBodyLine(line string, post domain.Post, selected bool) string {
+	return renderMessageGutter(post, selected, false) + line
 }
 
 func firstImportantPostIndex(posts []domain.Post) int {
@@ -1467,22 +1650,73 @@ func (m Model) renderPostLine(line string, selected bool) string {
 	if !selected {
 		return "  " + line
 	}
-	// Keep selection height/width stable: a full-width background looked noisy and
-	// wrapped oddly with ANSI/markdown content in narrow split-thread layouts.
-	return accent.Render("▌ ") + selectedMsgStyle.Render(line)
+	// Selection is shown by the block gutter itself (┃) to avoid competing left markers.
+	return selectedMsgStyle.Render(line)
 }
 
 func (m Model) helpText() string {
+	if m.isRussian() {
+		return strings.TrimSpace(`Клавиши
+
+  ctrl+p / ctrl+k   быстрый переход / команды
+  alt+1/2/3/4       сайдбар / лента / ввод / тред
+  ctrl+b / alt+s    перейти в левый сайдбар из любого места
+  alt+,             настройки из любого места
+  ,                 настройки, когда вы не печатаете
+  /                 фильтр каналов
+  tab / shift+tab   переключить фокус
+  j/k или стрелки   навигация по сайдбару / ленте
+  n / N             следующее / предыдущее непрочитанное или упоминание
+  a                 упоминания (@you/@all/@channel/@here)
+  ctrl+u / alt+u    triage из любого места, включая ввод
+  u                 triage когда вы не печатаете
+                    triage: enter открыть · d скрыть · n/N двигаться · esc закрыть
+  i                 информация о канале/человеке
+  F2 / ctrl+g       переключить область/team/workspace
+  w / T             переключить область, когда вы не печатаете
+  f                 добавить/убрать избранное в сайдбаре
+  s/c/d/g или 0/1/2/3 перейти к избранным/каналам/личным/группам
+  pgup/pgdown       прыгать между секциями
+  left/right        свернуть/развернуть секцию
+  space или x       переключить секцию
+  enter             отправить сообщение или открыть канал
+  ctrl+j            новая строка
+  [ или ctrl+o      загрузить старые сообщения
+  y                 скопировать текст сообщения
+  p                 скопировать permalink
+  o / enter         открыть первую ссылку
+  r                 процитировать сообщение
+  e                 редактировать своё сообщение
+  D                 удалить своё сообщение (нажать дважды)
+  t                 открыть тред
+  R                 поиск/выбор реакции
+  ctrl+r            перезагрузить канал или переподключиться
+  ?                 помощь
+  q / ctrl+c        выйти
+
+Конфиг
+
+  BAND_URL=https://band.wb.ru
+  BAND_TOKEN=...
+  BAND_LANG=ru
+
+или ~/.config/band-tui/config.json с server_url, token и language.`)
+	}
 	return strings.TrimSpace(`Keys
 
-  ctrl+p / ctrl+k   quick switcher
+  ctrl+p / ctrl+k   quick switcher / go to
+  alt+1/2/3/4       sidebar / timeline / composer / thread
+  ctrl+b / alt+s    focus left sidebar from anywhere
+  alt+,             open settings from anywhere
+  ,                 open settings when not typing
   /                 filter channels
   tab / shift+tab   switch focus
   j/k or arrows     move in sidebar / timeline
   n / N             next / previous unread or mention
   a                 open mentions inbox (@you/@all/@channel/@here)
-  u                 open triage inbox (mentions/unread/thread replies)
-                    triage: enter open · d done · n/N move · esc close
+  ctrl+u / alt+u  open triage inbox from anywhere (incl. typing)
+  u                 open triage inbox when not typing
+                    triage: mentions/unread/thread replies · enter open · d done · n/N move · esc close
   i                 open channel/person info (when not typing)
   F2 / ctrl+g       switch scope/team/workspace
   w / T             switch scope when not typing
@@ -1501,7 +1735,7 @@ func (m Model) helpText() string {
   e                 edit selected own message
   D                 delete selected own message (press twice)
   t                 open thread for selected message
-  R                 open reaction picker for selected message
+  R                 open reaction picker/search for selected message
   ctrl+r            reload current channel or reconnect when offline
   ?                 toggle help
   q / ctrl+c        quit
@@ -1510,8 +1744,9 @@ Config
 
   BAND_URL=https://band.wb.ru
   BAND_TOKEN=...
+  BAND_LANG=ru
 
-or ~/.config/band-tui/config.json with server_url and token.`)
+or ~/.config/band-tui/config.json with server_url, token and language.`)
 }
 
 func channelGroup(channelType string) string {

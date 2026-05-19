@@ -24,6 +24,161 @@ var defaultReactions = []reactionOption{
 	{Name: "tada", Glyph: "🎉"},
 }
 
+var standardReactionCatalog = []reactionOption{
+	{Name: "-1", Glyph: "👎"},
+	{Name: "smile", Glyph: "😄"},
+	{Name: "smiley", Glyph: "😃"},
+	{Name: "grinning", Glyph: "😀"},
+	{Name: "joy", Glyph: "😂"},
+	{Name: "rofl", Glyph: "🤣"},
+	{Name: "slightly_smiling_face", Glyph: "🙂"},
+	{Name: "wink", Glyph: "😉"},
+	{Name: "blush", Glyph: "😊"},
+	{Name: "thinking_face", Glyph: "🤔"},
+	{Name: "face_with_monocle", Glyph: "🧐"},
+	{Name: "neutral_face", Glyph: "😐"},
+	{Name: "expressionless", Glyph: "😑"},
+	{Name: "confused", Glyph: "😕"},
+	{Name: "disappointed", Glyph: "😞"},
+	{Name: "cry", Glyph: "😢"},
+	{Name: "sob", Glyph: "😭"},
+	{Name: "angry", Glyph: "😠"},
+	{Name: "rage", Glyph: "😡"},
+	{Name: "scream", Glyph: "😱"},
+	{Name: "open_mouth", Glyph: "😮"},
+	{Name: "astonished", Glyph: "😲"},
+	{Name: "partying_face", Glyph: "🥳"},
+	{Name: "sunglasses", Glyph: "😎"},
+	{Name: "nerd_face", Glyph: "🤓"},
+	{Name: "facepalm", Glyph: "🤦"},
+	{Name: "shrug", Glyph: "🤷"},
+	{Name: "pray", Glyph: "🙏"},
+	{Name: "clap", Glyph: "👏"},
+	{Name: "raised_hands", Glyph: "🙌"},
+	{Name: "muscle", Glyph: "💪"},
+	{Name: "ok_hand", Glyph: "👌"},
+	{Name: "wave", Glyph: "👋"},
+	{Name: "point_up", Glyph: "☝️"},
+	{Name: "point_up_2", Glyph: "👆"},
+	{Name: "point_down", Glyph: "👇"},
+	{Name: "point_left", Glyph: "👈"},
+	{Name: "point_right", Glyph: "👉"},
+	{Name: "fire", Glyph: "🔥"},
+	{Name: "boom", Glyph: "💥"},
+	{Name: "sparkles", Glyph: "✨"},
+	{Name: "star", Glyph: "⭐"},
+	{Name: "100", Glyph: "💯"},
+	{Name: "heavy_check_mark", Glyph: "✔️"},
+	{Name: "x", Glyph: "❌"},
+	{Name: "warning", Glyph: "⚠️"},
+	{Name: "question", Glyph: "❓"},
+	{Name: "grey_question", Glyph: "❔"},
+	{Name: "exclamation", Glyph: "❗"},
+	{Name: "grey_exclamation", Glyph: "❕"},
+	{Name: "bulb", Glyph: "💡"},
+	{Name: "rocket", Glyph: "🚀"},
+	{Name: "bug", Glyph: "🐛"},
+	{Name: "eyes", Glyph: "👀"},
+	{Name: "heart", Glyph: "❤️"},
+	{Name: "broken_heart", Glyph: "💔"},
+	{Name: "blue_heart", Glyph: "💙"},
+	{Name: "green_heart", Glyph: "💚"},
+	{Name: "yellow_heart", Glyph: "💛"},
+	{Name: "purple_heart", Glyph: "💜"},
+	{Name: "coffee", Glyph: "☕"},
+	{Name: "beer", Glyph: "🍺"},
+	{Name: "beers", Glyph: "🍻"},
+	{Name: "pizza", Glyph: "🍕"},
+}
+
+func reactionDisplayName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	for _, option := range defaultReactions {
+		if option.Name == name {
+			return option.Glyph
+		}
+	}
+	for _, option := range standardReactionCatalog {
+		if option.Name == name {
+			return option.Glyph
+		}
+	}
+	return ":" + name + ":"
+}
+
+func (m Model) reactionOptionsForPost(post domain.Post) []reactionOption {
+	query := strings.ToLower(strings.TrimSpace(m.reactionPickerQuery))
+	seen := map[string]struct{}{}
+	options := make([]reactionOption, 0, len(defaultReactions)+len(standardReactionCatalog)+len(post.Reactions))
+	add := func(option reactionOption) {
+		option.Name = strings.TrimSpace(option.Name)
+		if option.Name == "" {
+			return
+		}
+		if option.Glyph == "" {
+			option.Glyph = reactionDisplayName(option.Name)
+		}
+		if _, ok := seen[option.Name]; ok {
+			return
+		}
+		if query != "" {
+			needle := strings.ToLower(option.Name + " " + option.Glyph)
+			if !strings.Contains(needle, query) {
+				return
+			}
+		}
+		seen[option.Name] = struct{}{}
+		options = append(options, option)
+	}
+	for _, option := range defaultReactions {
+		add(option)
+	}
+	for _, reaction := range post.Reactions {
+		add(reactionOption{Name: reaction.Name})
+	}
+	if m.session != nil {
+		for _, emoji := range m.session.Emojis {
+			add(reactionOption{Name: emoji.Name, Glyph: emoji.Glyph})
+		}
+	}
+	for _, option := range standardReactionCatalog {
+		add(option)
+	}
+	if query != "" {
+		name := sanitizeReactionName(query)
+		if name != "" {
+			if _, ok := seen[name]; !ok {
+				options = append(options, reactionOption{Name: name, Glyph: reactionDisplayName(name)})
+			}
+		}
+	}
+	return options
+}
+
+func sanitizeReactionName(s string) string {
+	s = strings.TrimSpace(strings.Trim(s, ":"))
+	s = strings.ToLower(s)
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == '+' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+const reactionPickerGridColumns = 8
+
+func (m Model) reactionPickerColumns(options []reactionOption) int {
+	if strings.TrimSpace(m.reactionPickerQuery) != "" {
+		return min(2, max(1, len(options)))
+	}
+	return reactionPickerGridColumns
+}
+
 type reactionTargetKind int
 
 const (
@@ -295,6 +450,7 @@ func (m Model) openReactionPicker() (tea.Model, tea.Cmd) {
 	}
 	m.reactionPickerOpen = true
 	m.reactionPickerSelected = 0
+	m.reactionPickerQuery = ""
 	m.reactionTargetKind = reactionTargetTimeline
 	m.reactionTargetPostID = m.posts[idx].ID
 	m.status = "pick a reaction"
@@ -306,10 +462,11 @@ func (m Model) toggleSelectedReaction() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	if m.reactionPickerSelected < 0 || m.reactionPickerSelected >= len(defaultReactions) {
+	options := m.reactionOptionsForPost(post)
+	if len(options) == 0 || m.reactionPickerSelected < 0 || m.reactionPickerSelected >= len(options) {
 		return m, nil
 	}
-	reaction := defaultReactions[m.reactionPickerSelected]
+	reaction := options[m.reactionPickerSelected]
 	m.reactionPickerOpen = false
 	m.status = "toggling reaction…"
 	return m, toggleReactionCmd(m.ctx, m.backend, post, reaction.Name)
@@ -322,6 +479,7 @@ func (m Model) openThreadReactionPicker() (tea.Model, tea.Cmd) {
 	}
 	m.reactionPickerOpen = true
 	m.reactionPickerSelected = 0
+	m.reactionPickerQuery = ""
 	m.reactionTargetKind = reactionTargetThread
 	m.reactionTargetPostID = post.ID
 	m.status = "pick a reaction"

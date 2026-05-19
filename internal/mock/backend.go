@@ -53,6 +53,7 @@ func (b *Backend) Connect(ctx context.Context) (*domain.Session, error) {
 		ServerURL: "mock://band.wb.ru",
 		User:      domain.User{ID: "me", Username: "you", Nickname: "You"},
 		Teams:     []domain.Team{{ID: "wb", Name: "wb", DisplayName: "WB Band"}},
+		Emojis:    []domain.Emoji{{Name: "party_blob"}, {Name: "ship_it"}, {Name: "this_is_fine"}},
 	}, nil
 }
 

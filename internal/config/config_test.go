@@ -7,11 +7,12 @@ import (
 )
 
 func TestParseMergesFileEnvAndCLI(t *testing.T) {
-	for _, key := range []string{"BAND_URL", "BAND_TOKEN", "BAND_USERNAME", "BAND_PASSWORD", "BAND_TEAM", "BAND_CHANNEL", "BAND_MOCK", "MATTERMOST_URL", "MATTERMOST_TOKEN"} {
+	for _, key := range []string{"BAND_URL", "BAND_TOKEN", "BAND_USERNAME", "BAND_PASSWORD", "BAND_TEAM", "BAND_CHANNEL", "BAND_LANG", "BAND_MOCK", "MATTERMOST_URL", "MATTERMOST_TOKEN"} {
 		t.Setenv(key, "")
 	}
 	t.Setenv("BAND_TOKEN", "env-token")
 	t.Setenv("BAND_TEAM", "env-team")
+	t.Setenv("BAND_LANG", "ru")
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
@@ -37,6 +38,9 @@ func TestParseMergesFileEnvAndCLI(t *testing.T) {
 	}
 	if opts.Config.Channel != "cli-channel" {
 		t.Fatalf("channel = %q", opts.Config.Channel)
+	}
+	if opts.Config.Language != "ru" {
+		t.Fatalf("language = %q", opts.Config.Language)
 	}
 	if len(opts.Config.FavoriteChannels) != 2 || opts.Config.FavoriteChannels[0] != "c1" || opts.Config.FavoriteChannels[1] != "d2" {
 		t.Fatalf("favorites = %#v", opts.Config.FavoriteChannels)

@@ -67,8 +67,31 @@ func (m Model) openTriageOverlay() Model {
 	m.triageOpen = true
 	m.triageSelected = 0
 	m.activityOpen = false
+	m.settingsOpen = false
 	m.switcherOpen = false
+	m.switcherQuery = ""
+	m.infoOpen = false
+	m.teamSwitcherOpen = false
+	m.reactionPickerOpen = false
+	m.filtering = false
 	return m
+}
+
+func (m Model) toggleTriageOverlay() Model {
+	if m.triageOpen {
+		m.triageOpen = false
+		return m
+	}
+	return m.openTriageOverlay()
+}
+
+func isGlobalTriageKey(msg tea.KeyMsg) bool {
+	switch msg.String() {
+	case "ctrl+u", "alt+u":
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *Model) clampTriageSelection() {
@@ -193,12 +216,27 @@ func (m Model) openTriageItem(item triageItem) (tea.Model, tea.Cmd) {
 		} else {
 			m.pendingJumpPostID = item.PostID
 		}
-		return m.openCurrentChannel()
+		return m.openTriageChannelForReply()
 	case triageUnreadChannel:
-		return m.openCurrentChannel()
+		return m.openTriageChannelForReply()
 	default:
 		return m, nil
 	}
+}
+
+func (m Model) openTriageChannelForReply() (tea.Model, tea.Cmd) {
+	updated, cmd := m.openCurrentChannel()
+	m = updated.(Model)
+	m.focus = focusComposer
+	m.threadFocusComposer = false
+	if m.composerReady() {
+		m.applyFocus()
+	}
+	m.status = "opened from triage · type reply"
+	if m.loading {
+		m.status = "opening from triage…"
+	}
+	return m, cmd
 }
 
 func (m Model) openTriageThread(item triageItem) (tea.Model, tea.Cmd) {
@@ -215,7 +253,7 @@ func (m Model) openTriageThread(item triageItem) (tea.Model, tea.Cmd) {
 			m.pendingJumpChannelID = item.ChannelID
 			m.pendingJumpPostID = rootID
 			m.pendingJumpThreadID = rootID
-			return m.openCurrentChannel()
+			return m.openTriageChannelForReply()
 		}
 	}
 	channelID := item.ChannelID
@@ -233,14 +271,14 @@ func (m Model) openTriageThread(item triageItem) (tea.Model, tea.Cmd) {
 	m.threadSelected = -1
 	m.threadLoading = true
 	m.threadPosts = nil
-	m.threadFocusComposer = false
+	m.threadFocusComposer = true
 	m.focus = focusComposer
 	if m.width > 0 && m.height > 0 {
 		m.resize()
 		m.refreshViewport()
 		m.refreshThreadViewport()
 	}
-	m.status = "loading thread…"
+	m.status = "opened thread · type reply"
 	return m, loadThreadCmd(m.ctx, m.backend, rootID)
 }
 

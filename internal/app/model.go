@@ -42,20 +42,21 @@ type Model struct {
 	cancel context.CancelFunc
 	events chan domain.Event
 
-	session             *domain.Session
-	channels            []domain.Channel
-	posts               []domain.Post
-	postsByChannel      map[string][]domain.Post
-	postLineOffsets     []int
-	recentEvents        []domain.Post
-	threadOpen          bool
-	threadRootID        string
-	threadPosts         []domain.Post
-	threadLineOffsets   []int
-	threadLoading       bool
-	threadSelected      int
-	threadViewport      viewport.Model
-	threadFocusComposer bool
+	session              *domain.Session
+	channels             []domain.Channel
+	posts                []domain.Post
+	postsByChannel       map[string][]domain.Post
+	postLineOffsets      []int
+	recentEvents         []domain.Post
+	threadOpen           bool
+	threadRootID         string
+	threadPosts          []domain.Post
+	threadLineOffsets    []int
+	threadLoading        bool
+	threadSelected       int
+	threadSelectedPostID string
+	threadViewport       viewport.Model
+	threadFocusComposer  bool
 
 	selectedTeam           int
 	selectedChannel        int
@@ -71,8 +72,11 @@ type Model struct {
 	activityOpen           bool
 	activitySelected       int
 	triageOpen             bool
+	settingsOpen           bool
+	settingsSelected       int
 	reactionPickerOpen     bool
 	reactionPickerSelected int
+	reactionPickerQuery    string
 	reactionTargetKind     reactionTargetKind
 	reactionTargetPostID   string
 	triageSelected         int
@@ -116,7 +120,7 @@ type Model struct {
 func New(backend domain.Backend, cfg config.Config, mockFallback bool) Model {
 	ctx, cancel := context.WithCancel(context.Background())
 	composer := textarea.New()
-	composer.Placeholder = "Write a message…"
+	composer.Placeholder = translate(cfg.Language, "Write a message…")
 	composer.ShowLineNumbers = false
 	composer.Prompt = ""
 	composer.CharLimit = 12000
@@ -230,8 +234,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loading = false
 		if msg.err != nil {
-			m.err = msg.err.Error()
-			m.status = "could not load messages"
+			m.err = conciseErrorMessage(msg.err)
+			if len(m.posts) > 0 {
+				m.status = "refresh failed · showing cached messages"
+			} else {
+				m.status = "could not load messages"
+			}
+			m.noteConnectionIssue(msg.err)
 			return m, nil
 		}
 		m.err = ""
@@ -271,7 +280,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loadDraft(threadDraftKey(msg.channelID, pendingThreadID))
 			m.threadLoading = true
 			m.threadPosts = nil
-			m.threadFocusComposer = false
+			m.threadFocusComposer = true
+			m.focus = focusComposer
+			m.status = "opened thread · type reply"
+			if m.composerReady() {
+				m.applyFocus()
+			}
 			m.resize()
 			m.refreshThreadViewport()
 			cmds = append(cmds, loadThreadCmd(m.ctx, m.backend, pendingThreadID))
@@ -284,8 +298,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loadingOlder = false
 		if msg.err != nil {
-			m.err = msg.err.Error()
+			m.err = conciseErrorMessage(msg.err)
 			m.status = "could not load older messages"
+			m.noteConnectionIssue(msg.err)
 			return m, nil
 		}
 		if len(msg.posts) == 0 {
@@ -309,20 +324,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.threadLoading = false
 		if msg.err != nil {
-			m.err = msg.err.Error()
-			m.status = "could not load thread"
+			m.err = conciseErrorMessage(msg.err)
+			if len(m.threadPosts) > 0 {
+				m.status = "thread refresh failed · showing cached replies"
+			} else {
+				m.status = "could not load thread"
+			}
+			m.noteConnectionIssue(msg.err)
 			m.refreshThreadViewport()
 			return m, nil
 		}
 		m.err = ""
-		m.threadPosts = msg.posts
+		m.threadPosts = uniquePostsByID(msg.posts)
 		m.defaultThreadSelection()
 		if channelID := threadChannelID(msg.posts); channelID != "" {
 			m.applyThreadRead(channelID, msg.rootID)
 		}
 		m.rebuildTriageItems()
-		m.refreshThreadViewport()
-		m.threadViewport.GotoBottom()
+		m.syncThreadViewportSelection()
 		return m, nil
 
 	case replySentMsg:
@@ -340,12 +359,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.err = ""
-		m.threadPosts = append(m.threadPosts, m.normalizePost(msg.post))
-		m.bumpReplyCount(msg.rootID)
+		if m.addThreadPost(msg.post) {
+			m.addPostToCache(msg.channelID, msg.post)
+			m.bumpReplyCount(msg.rootID)
+		}
 		m.refreshViewport()
 		m.rebuildTriageItems()
-		m.refreshThreadViewport()
-		m.threadViewport.GotoBottom()
+		m.syncThreadViewportSelection()
 		m.status = "reply sent"
 		return m, nil
 
@@ -386,7 +406,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.status = "message updated"
 		m.refreshViewport()
-		m.refreshThreadViewport()
+		m.syncThreadViewportSelection()
 		return m, nil
 
 	case postDeletedMsg:
@@ -406,11 +426,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.refreshViewport()
 		m.rebuildTriageItems()
+		m.syncThreadViewportSelection()
 		m.status = "message deleted"
 		return m, nil
 
 	case reactionToggledMsg:
 		m.reactionPickerOpen = false
+		m.reactionPickerQuery = ""
 		if msg.err != nil {
 			m.err = msg.err.Error()
 			m.status = "reaction failed"
@@ -426,7 +448,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "reaction removed"
 		}
 		m.refreshViewport()
-		m.refreshThreadViewport()
+		m.syncThreadViewportSelection()
 		return m, nil
 
 	case backendEventMsg:
@@ -445,8 +467,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.applyIncomingPost(post, visibleThread, mentionActivity)
 			if post.RootID != "" {
 				if visibleThread {
-					m.refreshThreadViewport()
-					m.threadViewport.GotoBottom()
+					m.syncThreadViewportSelection()
 				}
 				m.refreshViewport()
 				m.rebuildTriageItems()
@@ -462,7 +483,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.rebuildTriageItems()
 		case domain.EventState:
+			previousState := m.connectionState
 			m.setConnectionState(msg.event.State, msg.event.Attempt, msg.event.RetryIn, msg.event.Message, msg.event.Err)
+			if m.shouldRefreshAfterReconnect(previousState, msg.event.State) {
+				m.status = "reconnected · refreshing…"
+				cmds = append(cmds, m.reconnectRefreshCmds()...)
+			}
+		case domain.EventReactionAdded:
+			if m.applyReactionEvent(msg.event.PostID, msg.event.EmojiName, msg.event.UserID, true) {
+				m.status = m.reactionEventStatus(msg.event.PostID, msg.event.EmojiName, msg.event.UserID, true)
+				m.refreshViewport()
+				m.syncThreadViewportSelection()
+			}
+		case domain.EventReactionRemoved:
+			if m.applyReactionEvent(msg.event.PostID, msg.event.EmojiName, msg.event.UserID, false) {
+				m.status = m.reactionEventStatus(msg.event.PostID, msg.event.EmojiName, msg.event.UserID, false)
+				m.refreshViewport()
+				m.syncThreadViewportSelection()
+			}
 		case domain.EventStatus:
 			m.updateUserStatus(msg.event.UserID, msg.event.Status)
 		case domain.EventError:
@@ -540,16 +578,121 @@ func connectionMessageFromError(err error) string {
 	return ""
 }
 
+func conciseErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	var backendErr *domain.BackendError
+	if errors.As(err, &backendErr) {
+		switch backendErr.Kind {
+		case domain.BackendErrorAuth:
+			return "auth expired"
+		case domain.BackendErrorNetwork:
+			return "network error"
+		case domain.BackendErrorServer:
+			if backendErr.StatusCode > 0 {
+				return fmt.Sprintf("server error %d", backendErr.StatusCode)
+			}
+			return "server error"
+		}
+		if backendErr.StatusCode > 0 {
+			return fmt.Sprintf("request failed %d", backendErr.StatusCode)
+		}
+		return "request failed"
+	}
+	msg := strings.TrimSpace(err.Error())
+	lower := strings.ToLower(msg)
+	switch {
+	case msg == "":
+		return "request failed"
+	case strings.Contains(lower, "timeout"), strings.Contains(lower, "deadline exceeded"):
+		return "network timeout"
+	case strings.Contains(msg, "/api/"), strings.Contains(msg, "GET "), strings.Contains(msg, "POST "), strings.Contains(msg, "PUT "), strings.Contains(msg, "DELETE "):
+		return "request failed"
+	case len([]rune(msg)) > 80:
+		return string([]rune(msg)[:80]) + "…"
+	default:
+		return msg
+	}
+}
+
+func (m *Model) noteConnectionIssue(err error) {
+	var backendErr *domain.BackendError
+	if !errors.As(err, &backendErr) {
+		return
+	}
+	switch backendErr.Kind {
+	case domain.BackendErrorNetwork:
+		m.connectionState = domain.ConnectionReconnecting
+		m.connectionMessage = "will retry live connection"
+	case domain.BackendErrorAuth:
+		if !backendErr.Retryable {
+			m.connectionState = domain.ConnectionAuthExpired
+			m.connectionMessage = "refresh token and restart"
+		}
+	}
+}
+
 func (m Model) connectionStatusText() string {
 	if m.connectionState == "" {
 		return ""
 	}
-	return connectionEventStatus(domain.Event{
+	return m.connectionEventStatus(domain.Event{
 		State:   m.connectionState,
 		Attempt: m.connectionAttempt,
 		RetryIn: m.connectionRetryIn,
 		Message: m.connectionMessage,
 	})
+}
+
+func (m Model) connectionEventStatus(ev domain.Event) string {
+	if !m.isRussian() {
+		return connectionEventStatus(ev)
+	}
+	switch ev.State {
+	case domain.ConnectionConnecting:
+		return "подключение…"
+	case domain.ConnectionConnected:
+		return "подключено"
+	case domain.ConnectionReconnecting:
+		if ev.RetryIn > 0 {
+			return fmt.Sprintf("переподключение через %s", ev.RetryIn.Round(time.Second))
+		}
+		return "переподключение…"
+	case domain.ConnectionOffline:
+		if strings.TrimSpace(ev.Message) != "" {
+			return "нет соединения · " + m.tr(strings.TrimSpace(ev.Message))
+		}
+		return "нет соединения"
+	case domain.ConnectionAuthExpired:
+		if strings.TrimSpace(ev.Message) != "" {
+			return "сессия истекла · " + m.tr(strings.TrimSpace(ev.Message))
+		}
+		return "сессия истекла"
+	default:
+		if strings.TrimSpace(ev.Message) != "" {
+			return m.tr(strings.TrimSpace(ev.Message))
+		}
+		return "состояние соединения изменилось"
+	}
+}
+
+func (m Model) shouldRefreshAfterReconnect(previous, next domain.ConnectionState) bool {
+	if next != domain.ConnectionConnected || previous == "" || previous == domain.ConnectionConnected {
+		return false
+	}
+	return m.session != nil
+}
+
+func (m Model) reconnectRefreshCmds() []tea.Cmd {
+	cmds := make([]tea.Cmd, 0, 2)
+	if channelID := m.currentChannelID(); channelID != "" {
+		cmds = append(cmds, loadPostsCmd(m.ctx, m.backend, channelID))
+	}
+	if m.threadOpen && m.threadRootID != "" {
+		cmds = append(cmds, loadThreadCmd(m.ctx, m.backend, m.threadRootID))
+	}
+	return cmds
 }
 
 func connectionEventStatus(ev domain.Event) string {
@@ -584,6 +727,9 @@ func connectionEventStatus(ev domain.Event) string {
 func (m Model) View() string {
 	if m.width == 0 || m.height == 0 {
 		return ""
+	}
+	if m.settingsOpen {
+		return m.renderSettings(m.width, m.height)
 	}
 	if m.infoOpen {
 		return m.renderInfo(m.width, m.height)
@@ -620,6 +766,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.pendingDeletePostID != "" && !(m.focus == focusTimeline && msg.String() == "D") {
 		m.clearPendingDelete()
 	}
+	if target, ok := paneFocusTarget(msg); ok {
+		return m.focusPaneTarget(target)
+	}
+	if isGlobalSettingsKey(msg) {
+		m = m.toggleSettingsOverlay()
+		return m, nil
+	}
+	if isGlobalTriageKey(msg) {
+		m = m.toggleTriageOverlay()
+		return m, nil
+	}
+	if m.settingsOpen {
+		return m.handleSettingsKey(msg)
+	}
 	if m.infoOpen {
 		return m.handleInfoKey(msg)
 	}
@@ -638,6 +798,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.activityOpen {
 		return m.handleActivityKey(msg)
+	}
+	if m.threadOpen && m.focus == focusTimeline {
+		return m.handleTimelineKey(msg)
 	}
 	if m.threadOpen {
 		return m.handleThreadKey(msg)
@@ -672,6 +835,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focus != focusComposer {
 			m.showHelp = !m.showHelp
 			m.refreshViewport()
+			return m, nil
+		}
+	case ",":
+		if m.focus != focusComposer {
+			m = m.openSettingsOverlay()
 			return m, nil
 		}
 	case "/":
@@ -793,33 +961,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.focus == focusTimeline {
-		switch msg.String() {
-		case "up", "k":
-			return m.selectRelativePost(-1)
-		case "down", "j":
-			return m.selectRelativePost(1)
-		case "home":
-			return m.selectPost(0)
-		case "end":
-			return m.selectPost(len(m.posts) - 1)
-		case "o", "enter":
-			return m.openSelectedPostLink()
-		case "y":
-			return m.copySelectedPostText()
-		case "r":
-			return m.quoteSelectedPost()
-		case "p":
-			return m.copySelectedPostPermalink()
-		case "e":
-			return m.editSelectedPost()
-		case "D":
-			return m.deleteSelectedPost()
-		case "R":
-			return m.openReactionPicker()
-		}
-		var cmd tea.Cmd
-		m.viewport, cmd = m.viewport.Update(msg)
-		return m, cmd
+		return m.handleTimelineKey(msg)
 	}
 
 	if m.focus == focusComposer {
@@ -848,6 +990,40 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m Model) handleTimelineKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		if m.threadOpen {
+			return m.closeThread()
+		}
+	case "up", "k":
+		return m.selectRelativePost(-1)
+	case "down", "j":
+		return m.selectRelativePost(1)
+	case "home":
+		return m.selectPost(0)
+	case "end":
+		return m.selectPost(len(m.posts) - 1)
+	case "o", "enter":
+		return m.openSelectedPostLink()
+	case "y":
+		return m.copySelectedPostText()
+	case "r":
+		return m.quoteSelectedPost()
+	case "p":
+		return m.copySelectedPostPermalink()
+	case "e":
+		return m.editSelectedPost()
+	case "D":
+		return m.deleteSelectedPost()
+	case "R":
+		return m.openReactionPicker()
+	}
+	var cmd tea.Cmd
+	m.viewport, cmd = m.viewport.Update(msg)
+	return m, cmd
 }
 
 func (m Model) handleTeamSwitcherKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1024,7 +1200,7 @@ func (m Model) handleTriageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cancel()
 		_ = m.backend.Close()
 		return m, tea.Quit
-	case "esc", "u":
+	case "esc", "u", "ctrl+u", "alt+u":
 		m.triageOpen = false
 		return m, nil
 	case "up", "k", "N":
@@ -1062,6 +1238,9 @@ func (m Model) handleTriageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleReactionPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	post, _ := m.selectedReactionTarget()
+	options := m.reactionOptionsForPost(post)
+	cols := m.reactionPickerColumns(options)
 	switch msg.String() {
 	case "ctrl+c":
 		m.cancel()
@@ -1069,19 +1248,48 @@ func (m Model) handleReactionPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "esc", "R":
 		m.reactionPickerOpen = false
+		m.reactionPickerQuery = ""
 		return m, nil
-	case "up", "k":
+	case "left":
 		if m.reactionPickerSelected > 0 {
 			m.reactionPickerSelected--
 		}
 		return m, nil
-	case "down", "j":
-		if m.reactionPickerSelected < len(defaultReactions)-1 {
+	case "right":
+		if m.reactionPickerSelected < len(options)-1 {
 			m.reactionPickerSelected++
+		}
+		return m, nil
+	case "up", "ctrl+p":
+		m.reactionPickerSelected = max(0, m.reactionPickerSelected-cols)
+		return m, nil
+	case "down", "ctrl+n":
+		if len(options) > 0 {
+			m.reactionPickerSelected = min(len(options)-1, m.reactionPickerSelected+cols)
+		}
+		return m, nil
+	case "home":
+		m.reactionPickerSelected = 0
+		return m, nil
+	case "end":
+		if len(options) > 0 {
+			m.reactionPickerSelected = len(options) - 1
+		}
+		return m, nil
+	case "backspace", "ctrl+h":
+		if m.reactionPickerQuery != "" {
+			runes := []rune(m.reactionPickerQuery)
+			m.reactionPickerQuery = string(runes[:len(runes)-1])
+			m.reactionPickerSelected = 0
 		}
 		return m, nil
 	case "enter":
 		return m.toggleSelectedReaction()
+	}
+	if len(msg.Runes) > 0 {
+		m.reactionPickerQuery += string(msg.Runes)
+		m.reactionPickerSelected = 0
+		return m, nil
 	}
 	return m, nil
 }
@@ -1118,16 +1326,12 @@ func (m Model) handleThreadKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		_ = m.backend.Close()
 		return m, tea.Quit
 	case "esc":
-		m.saveActiveDraft()
-		m.threadOpen = false
-		m.threadRootID = ""
-		m.threadPosts = nil
-		m.threadSelected = -1
-		m.loadDraft(channelDraftKey(m.currentChannelID()))
-		m.resize()
-		m.refreshViewport()
-		m.scrollSelectedPostIntoView()
-		return m, nil
+		if m.threadFocusComposer {
+			m.threadFocusComposer = false
+			m.status = "thread messages"
+			return m, nil
+		}
+		return m.closeThread()
 	case "tab", "shift+tab":
 		m.threadFocusComposer = !m.threadFocusComposer
 		return m, nil
@@ -1196,6 +1400,16 @@ func (m Model) handleThreadKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+const (
+	switcherGoSidebar = -1 - iota
+	switcherGoTimeline
+	switcherGoComposer
+	switcherGoThread
+	switcherOpenTriage
+	switcherOpenMentions
+	switcherOpenSettings
+)
+
 func (m Model) handleSwitcherKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
@@ -1220,6 +1434,9 @@ func (m Model) handleSwitcherKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		idx := indexes[m.switcherSelected]
 		m.switcherOpen = false
 		m.switcherQuery = ""
+		if idx < 0 {
+			return m.executeSwitcherCommand(idx)
+		}
 		m.selectedChannel = idx
 		m.focus = focusComposer
 		m.applyFocus()
@@ -1258,7 +1475,12 @@ func (m Model) switcherIndexes() []int {
 	query := strings.ToLower(strings.TrimSpace(m.switcherQuery))
 	base := m.matchingChannelIndexesFor(query)
 	sections := []string{sectionFavorites, sectionChannels, sectionDirect, sectionGroups}
-	indexes := make([]int, 0, len(base))
+	var commands []int
+	if m.switcherOpen {
+		commands = m.switcherCommandIndexes(query)
+	}
+	indexes := make([]int, 0, len(commands)+len(base))
+	indexes = append(indexes, commands...)
 	for _, section := range sections {
 		for _, idx := range base {
 			if m.channelInSection(idx, section) {
@@ -1267,6 +1489,46 @@ func (m Model) switcherIndexes() []int {
 		}
 	}
 	return indexes
+}
+
+func (m Model) switcherCommandIndexes(query string) []int {
+	commands := []int{switcherGoSidebar, switcherGoTimeline, switcherGoComposer, switcherOpenSettings, switcherOpenTriage, switcherOpenMentions}
+	if m.threadOpen {
+		commands = append(commands[:3], append([]int{switcherGoThread}, commands[3:]...)...)
+	}
+	out := make([]int, 0, len(commands))
+	for _, command := range commands {
+		line := strings.ToLower(m.switcherCommandLine(command))
+		if query == "" || strings.Contains(line, query) {
+			out = append(out, command)
+		}
+	}
+	return out
+}
+
+func (m Model) executeSwitcherCommand(command int) (tea.Model, tea.Cmd) {
+	switch command {
+	case switcherGoSidebar:
+		return m.focusPaneTarget(paneTargetSidebar)
+	case switcherGoTimeline:
+		return m.focusPaneTarget(paneTargetTimeline)
+	case switcherGoComposer:
+		return m.focusPaneTarget(paneTargetComposer)
+	case switcherGoThread:
+		return m.focusPaneTarget(paneTargetThread)
+	case switcherOpenTriage:
+		m = m.openTriageOverlay()
+		return m, nil
+	case switcherOpenMentions:
+		m.activityOpen = true
+		m.activitySelected = 0
+		return m, nil
+	case switcherOpenSettings:
+		m = m.openSettingsOverlay()
+		return m, nil
+	default:
+		return m, nil
+	}
 }
 
 func (m Model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1666,10 +1928,10 @@ func (m *Model) refreshThreadViewport() {
 	switch {
 	case m.threadLoading:
 		m.threadLineOffsets = nil
-		content = muted.Render("Loading thread…")
+		content = muted.Render(m.tr("Loading thread…"))
 	case len(m.threadPosts) == 0:
 		m.threadLineOffsets = nil
-		content = muted.Render("No replies yet.")
+		content = muted.Render(m.tr("No replies yet."))
 	default:
 		content, m.threadLineOffsets = m.renderThreadPostsWithOffsets(max(20, m.threadViewport.Width))
 	}
@@ -1698,6 +1960,12 @@ func (m *Model) scrollSelectedThreadPostIntoView() {
 	}
 }
 
+func (m *Model) syncThreadViewportSelection() {
+	m.clampThreadSelection()
+	m.refreshThreadViewport()
+	m.scrollSelectedThreadPostIntoView()
+}
+
 func (m *Model) refreshViewport() {
 	if m.showHelp {
 		m.postLineOffsets = nil
@@ -1719,6 +1987,103 @@ func (m *Model) prevFocus() {
 	m.clearPendingDelete()
 	m.focus = (m.focus + 2) % 3
 	m.applyFocus()
+}
+
+type paneTarget int
+
+const (
+	paneTargetSidebar paneTarget = iota
+	paneTargetTimeline
+	paneTargetComposer
+	paneTargetThread
+)
+
+func paneFocusTarget(msg tea.KeyMsg) (paneTarget, bool) {
+	switch msg.String() {
+	case "ctrl+b", "alt+s", "alt+1":
+		return paneTargetSidebar, true
+	case "alt+2":
+		return paneTargetTimeline, true
+	case "alt+3":
+		return paneTargetComposer, true
+	case "alt+4":
+		return paneTargetThread, true
+	default:
+		return 0, false
+	}
+}
+
+func (m Model) closeTransientOverlays() Model {
+	m.activityOpen = false
+	m.settingsOpen = false
+	m.switcherOpen = false
+	m.switcherQuery = ""
+	m.infoOpen = false
+	m.teamSwitcherOpen = false
+	m.reactionPickerOpen = false
+	m.reactionPickerQuery = ""
+	m.triageOpen = false
+	m.filtering = false
+	return m
+}
+
+func (m Model) focusPaneTarget(target paneTarget) (tea.Model, tea.Cmd) {
+	m.clearPendingDelete()
+	m = m.closeTransientOverlays()
+	switch target {
+	case paneTargetSidebar:
+		m = m.closeThreadForMainNavigation()
+		m.focus = focusSidebar
+		m.status = "sidebar"
+	case paneTargetTimeline:
+		m.focus = focusTimeline
+		m.threadFocusComposer = false
+		m.status = "timeline"
+	case paneTargetComposer:
+		m.focus = focusComposer
+		if m.threadOpen {
+			m.threadFocusComposer = true
+			m.status = "thread reply"
+		} else {
+			m.status = "composer"
+		}
+	case paneTargetThread:
+		if !m.threadOpen {
+			m.status = "no thread open"
+			m.applyFocus()
+			return m, nil
+		}
+		m.focus = focusComposer
+		m.threadFocusComposer = false
+		m.status = "thread messages"
+	}
+	m.applyFocus()
+	return m, nil
+}
+
+func (m Model) closeThreadForMainNavigation() Model {
+	if !m.threadOpen {
+		return m
+	}
+	m.saveActiveDraft()
+	m.threadOpen = false
+	m.threadRootID = ""
+	m.threadPosts = nil
+	m.threadSelected = -1
+	m.threadSelectedPostID = ""
+	m.threadFocusComposer = false
+	m.loadDraft(channelDraftKey(m.currentChannelID()))
+	m.resize()
+	m.refreshViewport()
+	m.scrollSelectedPostIntoView()
+	return m
+}
+
+func (m Model) closeThread() (tea.Model, tea.Cmd) {
+	m = m.closeThreadForMainNavigation()
+	m.focus = focusComposer
+	m.applyFocus()
+	return m, nil
 }
 
 func (m *Model) clearPendingDelete() {
@@ -1895,17 +2260,44 @@ func (m *Model) showCachedPosts(channelID string) bool {
 	return true
 }
 
-func (m *Model) addPostToCache(channelID string, post domain.Post) {
+func (m *Model) addPostToCache(channelID string, post domain.Post) bool {
 	post = m.normalizePost(post)
 	if m.postsByChannel == nil {
 		m.postsByChannel = map[string][]domain.Post{}
 	}
 	for _, existing := range m.postsByChannel[channelID] {
 		if existing.ID != "" && existing.ID == post.ID {
-			return
+			return false
 		}
 	}
 	m.postsByChannel[channelID] = append(m.postsByChannel[channelID], post)
+	return true
+}
+
+func (m *Model) addThreadPost(post domain.Post) bool {
+	post = m.normalizePost(post)
+	for _, existing := range m.threadPosts {
+		if existing.ID != "" && existing.ID == post.ID {
+			return false
+		}
+	}
+	m.threadPosts = append(m.threadPosts, post)
+	return true
+}
+
+func uniquePostsByID(posts []domain.Post) []domain.Post {
+	out := make([]domain.Post, 0, len(posts))
+	seen := map[string]struct{}{}
+	for _, post := range posts {
+		if post.ID != "" {
+			if _, ok := seen[post.ID]; ok {
+				continue
+			}
+			seen[post.ID] = struct{}{}
+		}
+		out = append(out, post)
+	}
+	return out
 }
 
 func (m *Model) addPost(post domain.Post) {
@@ -1983,6 +2375,117 @@ func mergeReactedPost(existing, updated domain.Post) domain.Post {
 	merged := mergeEditedPost(existing, updated)
 	merged.Reactions = append([]domain.PostReaction(nil), updated.Reactions...)
 	return merged
+}
+
+func applyReactionDelta(post *domain.Post, emojiName, userID, currentUserID string, added bool) bool {
+	emojiName = strings.TrimSpace(emojiName)
+	if post == nil || emojiName == "" {
+		return false
+	}
+	ownEvent := userID != "" && userID == currentUserID
+	if added {
+		for i := range post.Reactions {
+			if post.Reactions[i].Name != emojiName {
+				continue
+			}
+			if ownEvent && post.Reactions[i].Reacted {
+				return false
+			}
+			post.Reactions[i].Count++
+			if ownEvent {
+				post.Reactions[i].Reacted = true
+			}
+			return true
+		}
+		post.Reactions = append(post.Reactions, domain.PostReaction{Name: emojiName, Count: 1, Reacted: ownEvent})
+		return true
+	}
+	for i := range post.Reactions {
+		if post.Reactions[i].Name != emojiName {
+			continue
+		}
+		if ownEvent && !post.Reactions[i].Reacted {
+			return false
+		}
+		if post.Reactions[i].Count <= 1 {
+			post.Reactions = append(post.Reactions[:i], post.Reactions[i+1:]...)
+			return true
+		}
+		post.Reactions[i].Count--
+		if ownEvent {
+			post.Reactions[i].Reacted = false
+		}
+		return true
+	}
+	return false
+}
+
+func (m *Model) applyReactionEvent(postID, emojiName, userID string, added bool) bool {
+	if postID == "" || emojiName == "" {
+		return false
+	}
+	currentUserID := ""
+	if m.session != nil {
+		currentUserID = m.session.User.ID
+	}
+	changed := false
+	for i := range m.posts {
+		if m.posts[i].ID == postID {
+			changed = applyReactionDelta(&m.posts[i], emojiName, userID, currentUserID, added) || changed
+		}
+	}
+	if m.postsByChannel != nil {
+		for channelID, posts := range m.postsByChannel {
+			for i := range posts {
+				if posts[i].ID == postID {
+					changed = applyReactionDelta(&posts[i], emojiName, userID, currentUserID, added) || changed
+				}
+			}
+			m.postsByChannel[channelID] = posts
+		}
+	}
+	for i := range m.threadPosts {
+		if m.threadPosts[i].ID == postID {
+			changed = applyReactionDelta(&m.threadPosts[i], emojiName, userID, currentUserID, added) || changed
+		}
+	}
+	return changed
+}
+
+func (m Model) reactionEventStatus(postID, emojiName, userID string, added bool) string {
+	action := "reaction added"
+	if !added {
+		action = "reaction removed"
+	}
+	if m.session != nil && userID != "" && userID == m.session.User.ID {
+		return action
+	}
+	post, ok := m.knownPostByID(postID)
+	if ok && m.session != nil && post.UserID == m.session.User.ID && added {
+		return "new reaction " + reactionDisplayName(emojiName)
+	}
+	return action
+}
+
+func (m Model) knownPostByID(postID string) (domain.Post, bool) {
+	for _, post := range m.posts {
+		if post.ID == postID {
+			return post, true
+		}
+	}
+	for _, posts := range m.postsByChannel {
+		for _, post := range posts {
+			if post.ID == postID {
+				return post, true
+			}
+		}
+	}
+	for _, post := range m.threadPosts {
+		if post.ID == postID {
+			return post, true
+		}
+	}
+	return domain.Post{}, false
 }
 
 func (m *Model) mergeReactionPost(post domain.Post) {
@@ -2179,16 +2682,19 @@ func (m *Model) applyIncomingPost(post domain.Post, visibleThread, mentionActivi
 	case post.RootID != "":
 		if visibleThread {
 			clearImportantFlags(&post)
-			m.addPostToCache(post.ChannelID, post)
-			m.bumpReplyCount(post.RootID)
-			m.threadPosts = append(m.threadPosts, m.normalizePost(post))
+			cached := m.addPostToCache(post.ChannelID, post)
+			threaded := m.addThreadPost(post)
+			if cached || threaded {
+				m.bumpReplyCount(post.RootID)
+			}
 			m.reconcileChannelImportance(post.ChannelID)
 			return
 		}
 		post.Unread = true
 		post.ThreadUnread = true
-		m.addPostToCache(post.ChannelID, post)
-		m.bumpReplyCount(post.RootID)
+		if m.addPostToCache(post.ChannelID, post) {
+			m.bumpReplyCount(post.RootID)
+		}
 		m.markThreadUnread(post.ChannelID, post.RootID)
 		m.reconcileChannelImportance(post.ChannelID)
 	case viewCurrent:

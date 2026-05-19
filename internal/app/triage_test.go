@@ -476,6 +476,9 @@ func TestHandleTriageEnterOpensUnreadChannel(t *testing.T) {
 	if got.channels[0].Unread != 0 {
 		t.Fatalf("channel should be marked read on open, unread=%d", got.channels[0].Unread)
 	}
+	if got.focus != focusComposer {
+		t.Fatalf("triage channel open should focus composer, focus=%v", got.focus)
+	}
 }
 
 func TestHandleTriageEnterOpensThreadRoot(t *testing.T) {
@@ -491,6 +494,9 @@ func TestHandleTriageEnterOpensThreadRoot(t *testing.T) {
 	}
 	if got.triageOpen {
 		t.Fatal("triage should close after opening thread")
+	}
+	if !got.threadFocusComposer || got.focus != focusComposer {
+		t.Fatalf("triage thread open should focus reply composer: focus=%v threadComposer=%v", got.focus, got.threadFocusComposer)
 	}
 }
 
@@ -564,6 +570,9 @@ func TestHandleTriageEnterThreadInOtherChannelRoutesThroughChannelLoad(t *testin
 	got = updated.(Model)
 	if !got.threadOpen || got.threadRootID != "root-1" {
 		t.Fatalf("loaded cross-channel thread not opened: threadOpen=%v root=%q", got.threadOpen, got.threadRootID)
+	}
+	if !got.threadFocusComposer || got.focus != focusComposer {
+		t.Fatalf("loaded triage thread should focus reply composer: focus=%v threadComposer=%v", got.focus, got.threadFocusComposer)
 	}
 	if got.channels[1].Unread != 1 {
 		t.Fatalf("thread open should clear only thread work from counters: %#v", got.channels[1])

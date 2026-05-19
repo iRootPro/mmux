@@ -39,7 +39,7 @@ func TestRenderThreadPostsIncludesSelectableRoot(t *testing.T) {
 		},
 	}
 	got := m.renderThreadPosts(80)
-	if !strings.Contains(got, "Root message text") || !strings.Contains(got, "reply") || !strings.Contains(got, "▌ ") {
+	if !strings.Contains(got, "Root message text") || !strings.Contains(got, "reply") || !strings.Contains(got, "┃ ") {
 		t.Fatalf("thread posts = %q", got)
 	}
 }

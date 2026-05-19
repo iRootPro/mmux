@@ -37,6 +37,32 @@ func TestRenderPostsGroupsConsecutiveMessagesFromSameAuthor(t *testing.T) {
 	}
 }
 
+func TestRenderPostsUsesMessageBlockGutters(t *testing.T) {
+	m := Model{
+		posts: []domain.Post{{ID: "p1", Username: "Alice", Message: "hello", CreateAt: 1770000000000}},
+	}
+
+	got, _ := m.renderPosts()
+	if !strings.Contains(got, "▏ Alice") || !strings.Contains(got, "▏ hello") {
+		t.Fatalf("message block gutters missing:\n%s", got)
+	}
+}
+
+func TestRenderPostsUsesInlineTimestampForGroupedMessage(t *testing.T) {
+	base := int64(1770000000000)
+	m := Model{
+		posts: []domain.Post{
+			{ID: "p1", UserID: "u1", Username: "Alice", Message: "first", CreateAt: base},
+			{ID: "p2", UserID: "u1", Username: "Alice", Message: "second", CreateAt: base + 60_000},
+		},
+	}
+
+	got, _ := m.renderPosts()
+	if !strings.Contains(got, "▏ 05:41  second") || strings.Count(got, "Alice") != 1 {
+		t.Fatalf("grouped message inline timestamp missing or repeated author:\n%s", got)
+	}
+}
+
 func TestRenderPostsDoesNotGroupImportantMessages(t *testing.T) {
 	base := int64(1770000000000)
 	m := Model{

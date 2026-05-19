@@ -59,7 +59,7 @@ func TestRenderThreadPostsMarksSelectedMessage(t *testing.T) {
 	}
 	m.threadSelected = 1
 	got := m.renderThreadPosts(80)
-	if !strings.Contains(got, "▌ ") {
+	if !strings.Contains(got, "┃ ") {
 		t.Fatalf("selected thread message marker missing: %q", got)
 	}
 }

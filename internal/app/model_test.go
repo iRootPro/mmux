@@ -3,7 +3,9 @@ package app
 import (
 	"testing"
 
+	"band-tui/internal/config"
 	"band-tui/internal/domain"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestFilteredChannelIndexes(t *testing.T) {
@@ -133,5 +135,33 @@ func TestSwitcherIndexesFuzzyMatch(t *testing.T) {
 	got := m.switcherIndexes()
 	if len(got) != 1 || got[0] != 0 {
 		t.Fatalf("got %#v, want [0]", got)
+	}
+}
+
+func TestSwitcherIncludesGoToCommandsWhenOpen(t *testing.T) {
+	m := Model{
+		switcherOpen:     true,
+		favoriteChannels: map[string]bool{},
+		channels:         []domain.Channel{{ID: "1", Name: "dev", DisplayName: "Development", Type: "O"}},
+	}
+	got := m.switcherIndexes()
+	if len(got) < 2 || got[0] != switcherGoSidebar || got[1] != switcherGoTimeline {
+		t.Fatalf("switcher indexes should start with commands, got %#v", got)
+	}
+}
+
+func TestSwitcherCommandFocusesTimeline(t *testing.T) {
+	m := New(nil, config.Config{}, true)
+	m.switcherOpen = true
+	m.switcherSelected = 0
+	m.switcherQuery = "timeline"
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.focus = focusComposer
+
+	updated, _ := m.handleSwitcherKey(tea.KeyMsg{Type: tea.KeyEnter})
+	got := updated.(Model)
+	if got.switcherOpen || got.focus != focusTimeline {
+		t.Fatalf("switcher command should close and focus timeline: open=%v focus=%v", got.switcherOpen, got.focus)
 	}
 }

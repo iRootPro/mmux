@@ -344,3 +344,131 @@ func TestRenderThreadPostShowsReactionBadges(t *testing.T) {
 		t.Fatalf("thread render missing reaction badge: %q", got)
 	}
 }
+
+func TestRenderPostShowsUnknownReactionAsColonName(t *testing.T) {
+	m := Model{
+		posts: []domain.Post{{ID: "p1", Username: "Alice", Message: "hello", Reactions: []domain.PostReaction{
+			{Name: "party_blob", Count: 3},
+		}}},
+		selectedPost: -1,
+	}
+	got, _ := m.renderPosts()
+	if !strings.Contains(got, ":party_blob: 3") {
+		t.Fatalf("rendered posts missing custom reaction fallback: %q", got)
+	}
+}
+
+func TestReactionPickerIncludesCustomSessionEmojiAndSearches(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.session = &domain.Session{Emojis: []domain.Emoji{{Name: "party_blob"}}}
+	m.posts = []domain.Post{{ID: "p1", ChannelID: "c1", Message: "hello"}}
+	m.selectedPost = 0
+	m.reactionTargetKind = reactionTargetTimeline
+	m.reactionTargetPostID = "p1"
+	m.reactionPickerQuery = "party"
+
+	options := m.reactionOptionsForPost(m.posts[0])
+	if len(options) == 0 || options[0].Name != "party_blob" || options[0].Glyph != ":party_blob:" {
+		t.Fatalf("custom emoji options = %#v", options)
+	}
+}
+
+func TestReactionPickerArrowNavigationUsesGrid(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.reactionPickerOpen = true
+	m.posts = []domain.Post{{ID: "p1", ChannelID: "c1", Message: "hello"}}
+	m.selectedPost = 0
+	m.reactionTargetKind = reactionTargetTimeline
+	m.reactionTargetPostID = "p1"
+
+	updated, _ := m.handleReactionPickerKey(tea.KeyMsg{Type: tea.KeyRight})
+	got := updated.(Model)
+	if got.reactionPickerSelected != 1 {
+		t.Fatalf("selected after right = %d", got.reactionPickerSelected)
+	}
+	updated, _ = got.handleReactionPickerKey(tea.KeyMsg{Type: tea.KeyDown})
+	got = updated.(Model)
+	if got.reactionPickerSelected != 9 {
+		t.Fatalf("selected after down = %d", got.reactionPickerSelected)
+	}
+}
+
+func TestReactionPickerTypingLettersFiltersInsteadOfMoving(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.reactionPickerOpen = true
+	m.posts = []domain.Post{{ID: "p1", ChannelID: "c1", Message: "hello"}}
+	m.selectedPost = 0
+	m.reactionTargetKind = reactionTargetTimeline
+	m.reactionTargetPostID = "p1"
+
+	updated, _ := m.handleReactionPickerKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	got := updated.(Model)
+	if got.reactionPickerQuery != "j" || got.reactionPickerSelected != 0 {
+		t.Fatalf("query=%q selected=%d", got.reactionPickerQuery, got.reactionPickerSelected)
+	}
+}
+
+func TestReactionPickerCanToggleTypedArbitraryEmojiName(t *testing.T) {
+	backend := &reactionRecordingBackend{}
+	m := New(backend, testConfig(), false)
+	m.focus = focusTimeline
+	m.reactionPickerOpen = true
+	m.reactionPickerQuery = "party_blob"
+	m.posts = []domain.Post{{ID: "p1", ChannelID: "c1", Message: "hello"}}
+	m.selectedPost = 0
+	m.reactionTargetKind = reactionTargetTimeline
+	m.reactionTargetPostID = "p1"
+
+	updated, cmd := m.handleReactionPickerKey(tea.KeyMsg{Type: tea.KeyEnter})
+	got := updated.(Model)
+	if got.status != "toggling reaction…" || cmd == nil {
+		t.Fatalf("unexpected toggle state: status=%q cmd nil=%v", got.status, cmd == nil)
+	}
+	_ = cmd()
+	if backend.addEmoji != "party_blob" {
+		t.Fatalf("add emoji = %q, want party_blob", backend.addEmoji)
+	}
+}
+
+func TestReactionWebsocketEventUpdatesKnownPosts(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.session = &domain.Session{User: domain.User{ID: "me"}}
+	m.posts = []domain.Post{{ID: "p1", ChannelID: "c1", UserID: "me", Message: "hello"}}
+	m.postsByChannel = map[string][]domain.Post{"c1": {{ID: "p1", ChannelID: "c1", UserID: "me", Message: "hello"}}}
+
+	updated, _ := m.Update(backendEventMsg{event: domain.Event{Kind: domain.EventReactionAdded, PostID: "p1", EmojiName: "party_blob", UserID: "u2"}})
+	got := updated.(Model)
+	if len(got.posts[0].Reactions) != 1 || got.posts[0].Reactions[0].Name != "party_blob" || got.posts[0].Reactions[0].Count != 1 {
+		t.Fatalf("timeline reaction not updated: %#v", got.posts[0].Reactions)
+	}
+	if len(got.postsByChannel["c1"][0].Reactions) != 1 {
+		t.Fatalf("cached reaction not updated: %#v", got.postsByChannel["c1"][0].Reactions)
+	}
+	if got.status != "new reaction :party_blob:" {
+		t.Fatalf("status = %q", got.status)
+	}
+}
+
+func TestOwnReactionWebsocketEchoDoesNotDoubleApply(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.session = &domain.Session{User: domain.User{ID: "me"}}
+	m.posts = []domain.Post{{ID: "p1", ChannelID: "c1", UserID: "u2", Message: "hello", Reactions: []domain.PostReaction{{Name: "+1", Count: 1, Reacted: true}}}}
+
+	updated, _ := m.Update(backendEventMsg{event: domain.Event{Kind: domain.EventReactionAdded, PostID: "p1", EmojiName: "+1", UserID: "me"}})
+	got := updated.(Model)
+	if len(got.posts[0].Reactions) != 1 || got.posts[0].Reactions[0].Count != 1 || !got.posts[0].Reactions[0].Reacted {
+		t.Fatalf("own websocket echo double-applied: %#v", got.posts[0].Reactions)
+	}
+}
+
+func TestReactionWebsocketRemoveUpdatesKnownPosts(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.session = &domain.Session{User: domain.User{ID: "me"}}
+	m.posts = []domain.Post{{ID: "p1", ChannelID: "c1", UserID: "u2", Message: "hello", Reactions: []domain.PostReaction{{Name: "+1", Count: 2, Reacted: true}}}}
+
+	updated, _ := m.Update(backendEventMsg{event: domain.Event{Kind: domain.EventReactionRemoved, PostID: "p1", EmojiName: "+1", UserID: "me"}})
+	got := updated.(Model)
+	if len(got.posts[0].Reactions) != 1 || got.posts[0].Reactions[0].Count != 1 || got.posts[0].Reactions[0].Reacted {
+		t.Fatalf("reaction not removed: %#v", got.posts[0].Reactions)
+	}
+}

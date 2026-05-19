@@ -356,3 +356,52 @@ func TestThreadLoadedClearsConsumedThreadImportance(t *testing.T) {
 		}
 	}
 }
+
+func TestSentReplyWebsocketEchoDoesNotDuplicateVisibleThread(t *testing.T) {
+	m := Model{
+		channels:        []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}},
+		selectedChannel: 0,
+		posts:           []domain.Post{{ID: "root", ChannelID: "dev", Message: "root"}},
+		threadOpen:      true,
+		threadRootID:    "root",
+		threadPosts:     []domain.Post{{ID: "root", ChannelID: "dev", Message: "root"}},
+		postsByChannel: map[string][]domain.Post{
+			"dev": {{ID: "root", ChannelID: "dev", Message: "root"}},
+		},
+		events: make(chan domain.Event),
+	}
+	reply := domain.Post{ID: "r1", ChannelID: "dev", RootID: "root", UserID: "me", Message: "reply"}
+
+	updated, _ := m.Update(replySentMsg{channelID: "dev", rootID: "root", post: reply})
+	got := updated.(Model)
+	updated, _ = got.Update(backendEventMsg{event: domain.Event{Kind: domain.EventPost, Post: reply}})
+	got = updated.(Model)
+
+	if len(got.threadPosts) != 2 || got.threadPosts[1].ID != "r1" {
+		t.Fatalf("thread reply duplicated after websocket echo: %#v", got.threadPosts)
+	}
+	if got.posts[0].ReplyCount != 1 {
+		t.Fatalf("reply count = %d, want 1", got.posts[0].ReplyCount)
+	}
+	if channelPosts := got.postsByChannel["dev"]; len(channelPosts) != 2 || channelPosts[1].ID != "r1" {
+		t.Fatalf("cached reply duplicated or missing: %#v", channelPosts)
+	}
+}
+
+func TestThreadLoadedDropsDuplicatePostIDs(t *testing.T) {
+	m := Model{
+		threadOpen:   true,
+		threadRootID: "root",
+		channels:     []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}},
+	}
+
+	updated, _ := m.Update(threadLoadedMsg{rootID: "root", posts: []domain.Post{
+		{ID: "root", ChannelID: "dev", Message: "root"},
+		{ID: "r1", ChannelID: "dev", RootID: "root", Message: "reply"},
+		{ID: "r1", ChannelID: "dev", RootID: "root", Message: "reply"},
+	}})
+	got := updated.(Model)
+	if len(got.threadPosts) != 2 {
+		t.Fatalf("thread loaded duplicates not dropped: %#v", got.threadPosts)
+	}
+}

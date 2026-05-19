@@ -17,6 +17,10 @@ func triageKey(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyUp}
 	case "down":
 		return tea.KeyMsg{Type: tea.KeyDown}
+	case "ctrl+u":
+		return tea.KeyMsg{Type: tea.KeyCtrlU}
+	case "alt+u":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}, Alt: true}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
@@ -79,6 +83,61 @@ func TestHandleKeyDoesNotOpenTriageFromThreadComposer(t *testing.T) {
 	got := updated.(Model)
 	if got.triageOpen {
 		t.Fatal("triage should not open while thread composer is focused")
+	}
+}
+
+func TestCtrlUOpensTriageFromComposer(t *testing.T) {
+	m := Model{
+		focus:       focusComposer,
+		triageItems: []triageItem{{Kind: triageUnreadChannel, ChannelID: "dev", Title: "#dev", UnreadCount: 1}},
+	}
+
+	updated, _ := m.handleKey(triageKey("ctrl+u"))
+	got := updated.(Model)
+	if !got.triageOpen {
+		t.Fatal("ctrl+u should open triage from composer")
+	}
+}
+
+func TestAltUOpensTriageFromComposer(t *testing.T) {
+	m := Model{
+		focus:       focusComposer,
+		triageItems: []triageItem{{Kind: triageUnreadChannel, ChannelID: "dev", Title: "#dev", UnreadCount: 1}},
+	}
+
+	updated, _ := m.handleKey(triageKey("alt+u"))
+	got := updated.(Model)
+	if !got.triageOpen {
+		t.Fatal("alt+u should open triage from composer")
+	}
+}
+
+func TestAltUOpensTriageFromThreadComposer(t *testing.T) {
+	m := Model{
+		threadOpen:          true,
+		threadFocusComposer: true,
+		triageItems:         []triageItem{{Kind: triageUnreadChannel, ChannelID: "dev", Title: "#dev", UnreadCount: 1}},
+	}
+
+	updated, _ := m.handleKey(triageKey("alt+u"))
+	got := updated.(Model)
+	if !got.triageOpen {
+		t.Fatal("alt+u should open triage from thread composer")
+	}
+}
+
+func TestAltUOpensTriageOverOtherOverlays(t *testing.T) {
+	m := Model{
+		infoOpen:     true,
+		activityOpen: true,
+		switcherOpen: true,
+		triageItems:  []triageItem{{Kind: triageUnreadChannel, ChannelID: "dev", Title: "#dev", UnreadCount: 1}},
+	}
+
+	updated, _ := m.handleKey(triageKey("alt+u"))
+	got := updated.(Model)
+	if !got.triageOpen || got.infoOpen || got.activityOpen || got.switcherOpen {
+		t.Fatalf("alt+u should replace other overlays with triage: %#v", got)
 	}
 }
 

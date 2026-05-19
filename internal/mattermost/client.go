@@ -90,6 +90,7 @@ func (c *Client) Connect(ctx context.Context) (*domain.Session, error) {
 	for _, t := range teams {
 		out.Teams = append(out.Teams, domain.Team{ID: t.ID, Name: t.Name, DisplayName: t.DisplayName})
 	}
+	out.Emojis = c.loadCustomEmojis(ctx)
 	return out, nil
 }
 
@@ -508,6 +509,37 @@ func (c *Client) directChannelInfo(ctx context.Context, channelID, currentUserID
 	return directChannelInfo{DisplayName: strings.Join(names, ", "), UserIDs: ids}
 }
 
+func (c *Client) loadCustomEmojis(ctx context.Context) []domain.Emoji {
+	const pageSize = 200
+	out := make([]domain.Emoji, 0)
+	seen := map[string]struct{}{}
+	for page := 0; page < 20; page++ {
+		var emojis []mmEmoji
+		path := fmt.Sprintf("/api/v4/emoji?page=%d&per_page=%d", page, pageSize)
+		if err := c.do(ctx, http.MethodGet, path, nil, &emojis); err != nil {
+			break
+		}
+		for _, emoji := range emojis {
+			name := strings.TrimSpace(emoji.Name)
+			if name == "" {
+				continue
+			}
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			out = append(out, domain.Emoji{Name: name})
+		}
+		if len(emojis) < pageSize {
+			break
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	return out
+}
+
 func (c *Client) loadUserStatuses(ctx context.Context, userIDs []string) map[string]string {
 	unique := make([]string, 0, len(userIDs))
 	seen := map[string]struct{}{}
@@ -771,6 +803,10 @@ type mmChannelMember struct {
 type mmStatus struct {
 	UserID string `json:"user_id"`
 	Status string `json:"status"`
+}
+
+type mmEmoji struct {
+	Name string `json:"name"`
 }
 
 type mmPostList struct {

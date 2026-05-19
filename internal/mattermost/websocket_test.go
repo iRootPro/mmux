@@ -18,6 +18,13 @@ func TestMentionsCurrentUser(t *testing.T) {
 	}
 }
 
+func TestParseWSReaction(t *testing.T) {
+	reaction, ok := parseWSReaction(`{"user_id":"u2","post_id":"p1","emoji_name":"party_blob"}`)
+	if !ok || reaction.UserID != "u2" || reaction.PostID != "p1" || reaction.EmojiName != "party_blob" {
+		t.Fatalf("reaction=%#v ok=%v", reaction, ok)
+	}
+}
+
 func TestWatchFailureStateFromBackendError(t *testing.T) {
 	state, retryable := watchFailureState(&domain.BackendError{Kind: domain.BackendErrorAuth, Retryable: false})
 	if state != domain.ConnectionAuthExpired || retryable {

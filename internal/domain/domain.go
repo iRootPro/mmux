@@ -42,6 +42,11 @@ type Channel struct {
 	Status       string
 }
 
+type Emoji struct {
+	Name  string
+	Glyph string
+}
+
 type PostReaction struct {
 	Name    string
 	Count   int
@@ -70,6 +75,7 @@ type Session struct {
 	ServerURL string
 	User      User
 	Teams     []Team
+	Emojis    []Emoji
 }
 
 type ConnectionState string
@@ -125,22 +131,26 @@ func (e *BackendError) Unwrap() error {
 
 // Event is emitted by a backend watcher.
 type Event struct {
-	Kind    string
-	Post    Post
-	UserID  string
-	Status  string
-	State   ConnectionState
-	Attempt int
-	RetryIn time.Duration
-	Message string
-	Err     error
+	Kind      string
+	Post      Post
+	PostID    string
+	EmojiName string
+	UserID    string
+	Status    string
+	State     ConnectionState
+	Attempt   int
+	RetryIn   time.Duration
+	Message   string
+	Err       error
 }
 
 const (
-	EventPost   = "post"
-	EventStatus = "status"
-	EventError  = "error"
-	EventState  = "state"
+	EventPost            = "post"
+	EventStatus          = "status"
+	EventError           = "error"
+	EventState           = "state"
+	EventReactionAdded   = "reaction_added"
+	EventReactionRemoved = "reaction_removed"
 )
 
 // Backend is the minimal chat backend the TUI needs. Mattermost and mock

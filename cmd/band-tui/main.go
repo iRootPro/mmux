@@ -148,11 +148,12 @@ Flags:
   --password PASS   login/password auth password
   --team TEAM       preferred team name or ID
   --channel CH      preferred channel name or ID
+  --lang LANG       UI language: en or ru
   --config PATH     config JSON path
   --mock            run against built-in mock data
 
 Environment:
-  BAND_URL, BAND_TOKEN, BAND_USERNAME, BAND_PASSWORD, BAND_TEAM, BAND_CHANNEL
+  BAND_URL, BAND_TOKEN, BAND_USERNAME, BAND_PASSWORD, BAND_TEAM, BAND_CHANNEL, BAND_LANG
 
 `)
 }

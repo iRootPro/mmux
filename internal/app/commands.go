@@ -265,3 +265,17 @@ func saveFavoritesCmd(configPath string, favorites []string) tea.Cmd {
 		return preferenceSavedMsg{err: config.SaveFile(configPath, cfg)}
 	}
 }
+
+func saveLanguageCmd(configPath, serverURL, language string) tea.Cmd {
+	return func() tea.Msg {
+		cfg, err := config.LoadFile(configPath)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return preferenceSavedMsg{err: err}
+		}
+		if cfg.ServerURL == "" {
+			cfg.ServerURL = serverURL
+		}
+		cfg.Language = language
+		return preferenceSavedMsg{err: config.SaveFile(configPath, cfg)}
+	}
+}

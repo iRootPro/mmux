@@ -63,7 +63,8 @@ Example:
   "server_url": "https://band.wb.ru",
   "token": "...",
   "team": "my-team",
-  "channel": "town-square"
+  "channel": "town-square",
+  "language": "ru"
 }
 ```
 
@@ -77,6 +78,7 @@ Supported env vars:
 - `BAND_PASSWORD`
 - `BAND_TEAM`
 - `BAND_CHANNEL`
+- `BAND_LANG=ru` / `BAND_LANGUAGE=ru` for Russian UI (`en` is the default)
 - `BAND_MOCK=1`
 
 ## Auth notes
@@ -94,12 +96,15 @@ So the recommended CLI flow is either a Mattermost personal/session token via
 ## Keys
 
 - `tab` / `shift+tab` — switch focus
-- `ctrl+p` / `ctrl+k` — quick switcher
+- `alt+1` / `alt+2` / `alt+3` / `alt+4` — jump directly to sidebar / timeline / composer / thread
+- `ctrl+p` / `ctrl+k` — quick switcher plus go-to commands
+- `ctrl+b` / `alt+s` — focus the left sidebar from anywhere
+- `alt+,` — open settings from anywhere; `,` opens settings when not typing
 - `/` — filter channels
 - `j/k` or arrows — navigate sidebar / timeline
 - `a` — open mentions inbox (`@you`, `@all`, `@channel`, `@here`)
 - `n` / `N` — next / previous unread or mention
-- `u` — open triage inbox for mentions, unread channels, and thread replies (`enter` open, `d` locally dismiss, `n/N` move inside the overlay, `esc` close)
+- `ctrl+u` / `alt+u` — open triage inbox from anywhere, including while typing; `u` still opens it when not typing (`enter` open, `d` locally dismiss, `n/N` move inside the overlay, `esc` close)
 - `i` — open channel/person info (when focus is not in composer)
 - `F2` / `ctrl+g` — switch scope/team/workspace
 - `w` / `T` — switch scope when not typing
@@ -116,7 +121,8 @@ So the recommended CLI flow is either a Mattermost personal/session token via
 - `enter` — send message in composer
 - `ctrl+j` — newline in composer
 - `[` or `ctrl+o` — load older messages
-- timeline focus: `j/k` select message, `y` copy text, `p` copy permalink, `o` open first link, `r` quote into composer, `e` edit own message, `D` delete own message (press twice), `R` open reaction picker, `t` open thread
+- timeline focus: `j/k` select message, `y` copy text, `p` copy permalink, `o` open first link, `r` quote into composer, `e` edit own message, `D` delete own message (press twice), `R` open searchable reaction picker (type to filter/custom emoji, arrows move), `t` open thread
+- thread layout: `alt+2` timeline, `alt+3` reply composer, `alt+4` thread messages; `esc` from reply composer returns to messages, then closes thread
 - `ctrl+r` — reload current channel or retry connection/scope loading when offline; if auth expired, refresh token and restart
 - `?` — help
 - `q` outside composer / `ctrl+c` — quit
