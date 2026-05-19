@@ -8,9 +8,9 @@ import (
 )
 
 const (
-	settingsItemServer = iota
+	settingsItemLanguage = iota
+	settingsItemServer
 	settingsItemToken
-	settingsItemLanguage
 	settingsItemSave
 	settingsItemCount
 )

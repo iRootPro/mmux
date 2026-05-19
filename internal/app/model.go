@@ -180,6 +180,7 @@ func New(backend domain.Backend, cfg config.Config, mockFallback bool) Model {
 		m.connectionState = domain.ConnectionOffline
 		m.status = "setup required"
 		m.settingsOpen = true
+		m.settingsSelected = settingsItemServer
 		m.settingsDraftServer = cfg.ServerURL
 		m.settingsDraftToken = cfg.Token
 	} else if !cfg.Mock && !mockFallback {

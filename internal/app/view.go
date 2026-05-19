@@ -106,17 +106,17 @@ func (m Model) renderTeamSwitcher(width, height int) string {
 }
 
 func (m Model) renderSettings(width, height int) string {
-	boxWidth := min(max(72, width/2), max(72, width-8))
-	boxHeight := min(14, max(10, height-4))
+	boxWidth := min(max(78, width/2), max(78, width-8))
+	boxHeight := min(18, max(12, height-4))
 	var b strings.Builder
 	b.WriteString(headerStyle.Render(m.tr("Settings")))
 	b.WriteString(muted.Render("  ↑/↓ " + m.tr("move") + " · enter " + m.tr("edit/save") + " · esc " + m.tr("close")))
 	b.WriteString("\n\n")
 
 	rows := []string{
+		m.settingsRow(settingsItemLanguage, "🌍 "+m.tr("Language"), m.languageDisplayName(), boxWidth-4),
 		m.settingsRow(settingsItemServer, "🌐 "+m.tr("Server URL"), settingsDisplayValue(m.settingsDraftServer, m.tr("not set")), boxWidth-4),
 		m.settingsRow(settingsItemToken, "🔑 "+m.tr("Token"), maskedToken(m.settingsDraftToken, m.tr("not set")), boxWidth-4),
-		m.settingsRow(settingsItemLanguage, "🌍 "+m.tr("Language"), m.languageDisplayName(), boxWidth-4),
 		m.settingsRow(settingsItemSave, "💾 "+m.tr("Save connection"), m.tr("save to config"), boxWidth-4),
 	}
 	for _, row := range rows {
@@ -124,16 +124,32 @@ func (m Model) renderSettings(width, height int) string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
-	if m.settingsEditing {
-		b.WriteString(muted.Render(m.tr("editing: type, enter save, esc cancel, ctrl+u clear")))
-	} else if m.setupRequired {
-		b.WriteString(accent.Render(m.tr("Enter server URL and token, save, then restart.")))
-	} else {
-		b.WriteString(muted.Render(m.tr("Connection changes are used after restart.")))
+	for _, line := range m.settingsHelpLines(boxWidth - 4) {
+		b.WriteString(line)
+		b.WriteString("\n")
 	}
 
 	box := boxStyle.Width(boxWidth).Height(boxHeight).Render(b.String())
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
+func (m Model) settingsHelpLines(width int) []string {
+	if m.settingsEditing {
+		return []string{muted.Render(truncate(m.tr("editing: type, enter save, esc cancel, ctrl+u clear"), width))}
+	}
+	lines := make([]string, 0, 4)
+	if m.setupRequired {
+		lines = append(lines, accent.Render(truncate(m.tr("Enter server URL and token, save, then restart."), width)))
+	}
+	lines = append(lines,
+		muted.Render(truncate(m.tr("How to get a token:"), width)),
+		muted.Render(truncate("1. "+m.tr("Mattermost profile → Security → Personal Access Tokens."), width)),
+		muted.Render(truncate("2. "+m.tr("Or run mmux auth and paste the browser MMAUTHTOKEN cookie."), width)),
+	)
+	if !m.setupRequired {
+		lines = append(lines, muted.Render(truncate(m.tr("Connection changes are used after restart."), width)))
+	}
+	return lines
 }
 
 func (m Model) settingsRow(index int, label, value string, width int) string {

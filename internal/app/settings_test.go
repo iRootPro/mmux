@@ -116,7 +116,10 @@ func TestNewWithoutConnectionOpensSetup(t *testing.T) {
 		t.Fatal("setup mode should not connect on init")
 	}
 	got := m.renderSettings(120, 40)
-	if !strings.Contains(got, "Enter server URL") {
+	if !strings.Contains(got, "Enter server URL") || !strings.Contains(got, "How to get a token") || !strings.Contains(got, "mmux auth") {
 		t.Fatalf("setup guidance missing: %q", got)
+	}
+	if !strings.Contains(got, "Language") || strings.Index(got, "Language") > strings.Index(got, "Server URL") {
+		t.Fatalf("language should be above connection fields: %q", got)
 	}
 }
