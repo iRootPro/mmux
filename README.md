@@ -1,14 +1,15 @@
-# band-tui
+# mmux
 
-A light, minimal Bubble Tea TUI for `band.wb.ru` / Mattermost-compatible chat.
+A keyboard-first Bubble Tea TUI for Mattermost-compatible chat.
 
 Current MVP:
 
 - Mattermost REST auth with token or username/password
 - `doctor` command to verify API access
 - teams/channels/DM loading
-- message history loading with per-channel cache
+- message history loading with in-memory and disk cache for faster startup/scope switching
 - compact Mattermost markdown rendering: links, inline code, code fences, quotes, headings, mentions
+- file/image attachments rendered inline with name, type, size and dimensions when available
 - sending messages
 - websocket live updates with reconnect
 - unread and mention counters when provided by Mattermost
@@ -17,50 +18,72 @@ Current MVP:
 
 ## Install
 
-With Homebrew:
+### macOS / Linux with Homebrew
 
 ```bash
 brew install irootpro/tap/mmux
 ```
 
-This installs both commands:
+Then run:
 
 ```bash
 mmux --help
-band-tui --help
+```
+
+### Linux from GitHub Releases
+
+Download the archive for your architecture from the latest release:
+
+```bash
+# x86_64 / amd64
+curl -L -o mmux.tar.gz \
+  https://github.com/iRootPro/mmux/releases/download/v0.1.0/mmux_v0.1.0_linux_amd64.tar.gz
+
+# arm64 / aarch64
+# curl -L -o mmux.tar.gz \
+#   https://github.com/iRootPro/mmux/releases/download/v0.1.0/mmux_v0.1.0_linux_arm64.tar.gz
+
+tar -xzf mmux.tar.gz
+sudo install -m 0755 mmux_v0.1.0_linux_amd64/mmux /usr/local/bin/mmux
+```
+
+Then run:
+
+```bash
+mmux --help
 ```
 
 ## Run
 
 ```bash
-go run ./cmd/band-tui --mock
+mmux --mock
 ```
 
-With Band/Mattermost credentials:
+With Mattermost credentials:
 
 ```bash
-export BAND_URL=https://band.wb.ru
-export BAND_TOKEN=your_token
+export MMUX_URL=https://mattermost.example.com
+export MMUX_TOKEN=your_token
 
-go run ./cmd/band-tui doctor
-go run ./cmd/band-tui
+mmux doctor
+mmux
 ```
 
-Band currently uses browser OAuth/SSO. To save a browser session token:
+To save a browser session token:
 
 ```bash
-go run ./cmd/band-tui auth
+mmux auth
 ```
 
-The helper opens Employee/Guest login, asks you to paste the `MMAUTHTOKEN` cookie
-(or the whole Cookie header), validates it, and saves it to the config file.
+The helper asks you to paste the `MMAUTHTOKEN` cookie (or the whole Cookie
+header), validates it, and saves it to the config file.
 
 Username/password auth is also supported if the server allows it:
 
 ```bash
-export BAND_USERNAME=you@example.com
-export BAND_PASSWORD=...
-go run ./cmd/band-tui doctor
+export MMUX_USERNAME=you@example.com
+export MMUX_PASSWORD=...
+mmux doctor
 ```
 
 ## Config
@@ -68,14 +91,14 @@ go run ./cmd/band-tui doctor
 Default config path:
 
 ```text
-~/.config/band-tui/config.json
+~/.config/mmux/config.json
 ```
 
 Example:
 
 ```json
 {
-  "server_url": "https://band.wb.ru",
+  "server_url": "https://mattermost.example.com",
   "token": "...",
   "team": "my-team",
   "channel": "town-square",
@@ -87,32 +110,30 @@ Environment variables override config file values; CLI flags override both.
 
 Supported env vars:
 
-- `BAND_URL`
-- `BAND_TOKEN`
-- `BAND_USERNAME`
-- `BAND_PASSWORD`
-- `BAND_TEAM`
-- `BAND_CHANNEL`
-- `BAND_LANG=ru` / `BAND_LANGUAGE=ru` for Russian UI (`en` is the default)
-- `BAND_MOCK=1`
+- `MMUX_URL`
+- `MMUX_TOKEN`
+- `MMUX_USERNAME`
+- `MMUX_PASSWORD`
+- `MMUX_TEAM`
+- `MMUX_CHANNEL`
+- `MMUX_LANG=ru` / `MMUX_LANGUAGE=ru` for Russian UI (`en` is the default)
+- `MMUX_MOCK=1`
 
 ## Auth notes
 
-From the public Band config:
+The API is standard Mattermost `/api/v4`.
 
-- email/username sign-in is disabled
-- Employee Login uses `/oauth/gitlab/login` → Wildberries Keycloak
-- Guest Login uses `/oauth/wb/login` → wildberries.ru OAuth
-- the API itself is standard Mattermost `/api/v4`
+Recommended CLI flow:
 
-So the recommended CLI flow is either a Mattermost personal/session token via
-`BAND_TOKEN`, or `band-tui auth` to save the browser `MMAUTHTOKEN` session token.
+- use a Mattermost personal/session token via `MMUX_TOKEN`; or
+- run `mmux auth` to save the browser `MMAUTHTOKEN` session token.
 
 ## Keys
 
 - `tab` / `shift+tab` — switch focus
 - `alt+1` / `alt+2` / `alt+3` / `alt+4` — jump directly to sidebar / timeline / composer / thread
-- `ctrl+p` / `ctrl+k` — quick switcher plus go-to commands
+- `ctrl+p` — quick switcher plus go-to commands
+- `ctrl+h` / `ctrl+j` / `ctrl+k` / `ctrl+l` — tmux/vim-style pane navigation: sidebar / composer / timeline / thread
 - `ctrl+b` / `alt+s` — focus the left sidebar from anywhere
 - `alt+,` — open settings from anywhere; `,` opens settings when not typing
 - `/` — filter channels
@@ -134,7 +155,7 @@ So the recommended CLI flow is either a Mattermost personal/session token via
 - `left/right` — collapse/expand current sidebar section
 - `space` or `x` — toggle current sidebar section
 - `enter` — send message in composer
-- `ctrl+j` — newline in composer
+- `alt+enter` — newline in composer
 - `[` or `ctrl+o` — load older messages
 - timeline focus: `j/k` select message, `y` copy text, `p` copy permalink, `o` open first link, `r` quote into composer, `e` edit own message, `D` delete own message (press twice), `R` open searchable reaction picker (type to filter/custom emoji, arrows move), `t` open thread
 - thread layout: `alt+2` timeline, `alt+3` reply composer, `alt+4` thread messages; `esc` from reply composer returns to messages, then closes thread
@@ -146,7 +167,7 @@ So the recommended CLI flow is either a Mattermost personal/session token via
 
 ```bash
 go test ./...
-go build ./cmd/band-tui
+go build ./...
 ```
 
 If no credentials are provided, the TUI falls back to mock mode so design and interaction work can continue offline.

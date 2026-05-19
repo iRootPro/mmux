@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"net/url"
 	"os/exec"
 	"runtime"
@@ -303,7 +304,11 @@ func (m Model) openSelectedPostLink() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	link := firstURL(m.posts[idx].Message)
+	post := m.posts[idx]
+	link := firstURL(post.Message)
+	if link == "" {
+		link = m.firstFileURL(post)
+	}
 	if link == "" {
 		m.status = "no link in selected message"
 		return m, nil
@@ -319,7 +324,7 @@ func (m Model) copySelectedPostText() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	text := strings.TrimSpace(m.posts[idx].Message)
+	text := strings.TrimSpace(postPlainText(m.posts[idx]))
 	if text == "" {
 		m.status = "selected message is empty"
 		return m, nil
@@ -349,6 +354,17 @@ func (m Model) quoteSelectedPost() (tea.Model, tea.Cmd) {
 	m.applyFocus()
 	m.status = "quote inserted"
 	return m, nil
+}
+
+func (m Model) firstFileURL(post domain.Post) string {
+	if len(post.Files) == 0 || post.Files[0].ID == "" || m.session == nil {
+		return ""
+	}
+	serverURL := strings.TrimRight(strings.TrimSpace(m.session.ServerURL), "/")
+	if serverURL == "" {
+		return ""
+	}
+	return serverURL + "/api/v4/files/" + url.PathEscape(post.Files[0].ID)
 }
 
 func (m Model) selectedPostPermalink() (string, bool) {
@@ -504,8 +520,49 @@ func (m Model) selectedReactionTarget() (domain.Post, bool) {
 	return domain.Post{}, false
 }
 
-func formatQuotedReply(post domain.Post) string {
+func postPlainText(post domain.Post) string {
 	message := strings.TrimSpace(post.Message)
+	if len(post.Files) == 0 {
+		return message
+	}
+	var lines []string
+	if message != "" {
+		lines = append(lines, message)
+	}
+	for _, file := range post.Files {
+		lines = append(lines, attachmentPlainLabel(file))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func attachmentPlainLabel(file domain.PostFile) string {
+	name := strings.TrimSpace(file.Name)
+	if name == "" {
+		name = "file"
+		if file.ID != "" {
+			name += " " + shortID(file.ID)
+		}
+	}
+	var details []string
+	if file.Size > 0 {
+		details = append(details, formatFileSize(file.Size))
+	}
+	if file.MIMEType != "" {
+		details = append(details, file.MIMEType)
+	} else if file.Extension != "" {
+		details = append(details, file.Extension)
+	}
+	if file.Width > 0 && file.Height > 0 {
+		details = append(details, fmt.Sprintf("%d×%d", file.Width, file.Height))
+	}
+	if len(details) > 0 {
+		return "📎 " + name + " (" + strings.Join(details, " · ") + ")"
+	}
+	return "📎 " + name
+}
+
+func formatQuotedReply(post domain.Post) string {
+	message := strings.TrimSpace(postPlainText(post))
 	if message == "" {
 		return ""
 	}

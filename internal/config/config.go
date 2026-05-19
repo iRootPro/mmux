@@ -69,7 +69,7 @@ func Parse(args []string) (Options, error) {
 	}
 	merged.ServerURL = strings.TrimRight(merged.ServerURL, "/")
 	merged.Config = cfg.Config
-	merged.Mock = cfg.Mock || strings.EqualFold(os.Getenv("BAND_MOCK"), "1") || strings.EqualFold(os.Getenv("BAND_MOCK"), "true")
+	merged.Mock = cfg.Mock || truthyEnv("MMUX_MOCK") || truthyEnv("BAND_MOCK")
 
 	return Options{Command: cmd, Config: merged}, nil
 }
@@ -112,24 +112,28 @@ func HasCredentials(cfg Config) bool {
 
 func defaultConfigPath() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "band-tui", "config.json")
+		return filepath.Join(xdg, "mmux", "config.json")
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".config", "band-tui", "config.json")
+		return filepath.Join(home, ".config", "mmux", "config.json")
 	}
 	return "config.json"
 }
 
 func envConfig() Config {
 	return Config{
-		ServerURL: getenvAny("BAND_URL", "BAND_SERVER", "MATTERMOST_URL"),
-		Token:     getenvAny("BAND_TOKEN", "MATTERMOST_TOKEN"),
-		Username:  getenvAny("BAND_USERNAME", "MATTERMOST_USERNAME"),
-		Password:  getenvAny("BAND_PASSWORD", "MATTERMOST_PASSWORD"),
-		Team:      getenvAny("BAND_TEAM", "MATTERMOST_TEAM"),
-		Channel:   getenvAny("BAND_CHANNEL", "MATTERMOST_CHANNEL"),
-		Language:  getenvAny("BAND_LANG", "BAND_LANGUAGE"),
+		ServerURL: getenvAny("MMUX_URL", "MMUX_SERVER", "BAND_URL", "BAND_SERVER", "MATTERMOST_URL"),
+		Token:     getenvAny("MMUX_TOKEN", "BAND_TOKEN", "MATTERMOST_TOKEN"),
+		Username:  getenvAny("MMUX_USERNAME", "BAND_USERNAME", "MATTERMOST_USERNAME"),
+		Password:  getenvAny("MMUX_PASSWORD", "BAND_PASSWORD", "MATTERMOST_PASSWORD"),
+		Team:      getenvAny("MMUX_TEAM", "BAND_TEAM", "MATTERMOST_TEAM"),
+		Channel:   getenvAny("MMUX_CHANNEL", "BAND_CHANNEL", "MATTERMOST_CHANNEL"),
+		Language:  getenvAny("MMUX_LANG", "MMUX_LANGUAGE", "BAND_LANG", "BAND_LANGUAGE"),
 	}
+}
+
+func truthyEnv(key string) bool {
+	return strings.EqualFold(os.Getenv(key), "1") || strings.EqualFold(os.Getenv(key), "true")
 }
 
 func getenvAny(keys ...string) string {

@@ -134,7 +134,7 @@ func pickChannel(channels []domain.Channel, want string) domain.Channel {
 }
 
 func printHelp() {
-	fmt.Print(`band-tui - minimal TUI for band.wb.ru / Mattermost
+	fmt.Print(`mmux - keyboard-first TUI for Mattermost-compatible chat
 
 Usage:
   band-tui [flags]          open the TUI
@@ -153,7 +153,7 @@ Flags:
   --mock            run against built-in mock data
 
 Environment:
-  BAND_URL, BAND_TOKEN, BAND_USERNAME, BAND_PASSWORD, BAND_TEAM, BAND_CHANNEL, BAND_LANG
+  MMUX_URL, MMUX_TOKEN, MMUX_USERNAME, MMUX_PASSWORD, MMUX_TEAM, MMUX_CHANNEL, MMUX_LANG
 
 `)
 }

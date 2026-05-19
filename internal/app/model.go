@@ -46,6 +46,7 @@ type Model struct {
 	channels             []domain.Channel
 	posts                []domain.Post
 	postsByChannel       map[string][]domain.Post
+	scopeChannels        map[string][]domain.Channel
 	postLineOffsets      []int
 	recentEvents         []domain.Post
 	threadOpen           bool
@@ -125,7 +126,7 @@ func New(backend domain.Backend, cfg config.Config, mockFallback bool) Model {
 	composer.Prompt = ""
 	composer.CharLimit = 12000
 	composer.SetHeight(3)
-	composer.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("ctrl+j", "alt+enter"), key.WithHelp("ctrl+j", "newline"))
+	composer.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("alt+enter"), key.WithHelp("alt+enter", "newline"))
 	composer.FocusedStyle.CursorLine = lipgloss.NewStyle()
 	composer.FocusedStyle.Prompt = lipgloss.NewStyle()
 	composer.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(colorMuted)
@@ -144,7 +145,7 @@ func New(backend domain.Backend, cfg config.Config, mockFallback bool) Model {
 		}
 	}
 
-	return Model{
+	m := Model{
 		backend:           backend,
 		cfg:               cfg,
 		ctx:               ctx,
@@ -155,6 +156,7 @@ func New(backend domain.Backend, cfg config.Config, mockFallback bool) Model {
 		threadViewport:    threadVP,
 		composer:          composer,
 		postsByChannel:    map[string][]domain.Post{},
+		scopeChannels:     map[string][]domain.Channel{},
 		threadSelected:    -1,
 		selectedPost:      -1,
 		favoriteChannels:  favorites,
@@ -168,6 +170,10 @@ func New(backend domain.Backend, cfg config.Config, mockFallback bool) Model {
 		hasOlder:          true,
 		mockFallback:      mockFallback,
 	}
+	if !cfg.Mock && !mockFallback {
+		m.applyCachedState(loadAppCache(cfg))
+	}
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
@@ -214,19 +220,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = ""
 		m.channels = msg.channels
+		if m.scopeChannels == nil {
+			m.scopeChannels = map[string][]domain.Channel{}
+		}
+		m.scopeChannels[m.scopeKey()] = append([]domain.Channel(nil), msg.channels...)
 		m.selectedChannel = m.pickChannel()
 		m.switchDraft(m.currentDraftKey())
 		m.rebuildTriageItems()
 		if len(m.channels) == 0 {
 			m.status = "no channels"
 			m.refreshViewport()
-			return m, nil
+			return m, m.saveCacheCmd()
 		}
-		m.status = "loading messages…"
-		m.loading = true
-		m.posts = nil
-		m.refreshViewport()
-		return m, loadPostsCmd(m.ctx, m.backend, m.currentChannelID())
+		if m.showCachedPosts(m.currentChannelID()) {
+			m.status = "refreshing…"
+		} else {
+			m.status = "loading messages…"
+			m.loading = true
+			m.posts = nil
+			m.refreshViewport()
+		}
+		return m, tea.Batch(loadPostsCmd(m.ctx, m.backend, m.currentChannelID()), m.saveCacheCmd())
 
 	case postsLoadedMsg:
 		if msg.channelID != m.currentChannelID() {
@@ -272,7 +286,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.viewport.GotoBottom()
 		}
-		cmds := []tea.Cmd{viewChannelCmd(m.ctx, m.backend, msg.channelID)}
+		cmds := []tea.Cmd{viewChannelCmd(m.ctx, m.backend, msg.channelID), m.saveCacheCmd()}
 		if pendingThreadID != "" {
 			m.threadOpen = true
 			m.threadRootID = pendingThreadID
@@ -316,7 +330,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = fmt.Sprintf("%d messages", len(m.posts))
 		m.refreshViewport()
 		m.rebuildTriageItems()
-		return m, nil
+		return m, m.saveCacheCmd()
 
 	case threadLoadedMsg:
 		if msg.rootID != m.threadRootID {
@@ -517,6 +531,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case preferenceSavedMsg:
 		if msg.err != nil {
 			m.err = "save preference: " + msg.err.Error()
+		}
+		return m, nil
+
+	case cacheSavedMsg:
+		if msg.err != nil {
+			m.err = "save cache: " + msg.err.Error()
 		}
 		return m, nil
 
@@ -808,7 +828,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.switcherOpen {
 		return m.handleSwitcherKey(msg)
 	}
-	if msg.String() == "ctrl+p" || msg.String() == "ctrl+k" {
+	if msg.String() == "ctrl+p" {
 		m.switcherOpen = true
 		m.switcherQuery = ""
 		m.switcherSelected = 0
@@ -980,7 +1000,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "sending…"
 			m.loading = true
 			return m, sendPostCmd(m.ctx, m.backend, m.currentChannelID(), key, pendingID, text)
-		case "ctrl+j":
+		case "alt+enter":
 			m.composer.InsertString("\n")
 			return m, nil
 		}
@@ -1080,7 +1100,9 @@ func (m Model) switchTeam(index int) (tea.Model, tea.Cmd) {
 	m.channels = nil
 	m.posts = nil
 	m.postLineOffsets = nil
-	m.postsByChannel = map[string][]domain.Post{}
+	if m.postsByChannel == nil {
+		m.postsByChannel = map[string][]domain.Post{}
+	}
 	m.channelFilter = ""
 	m.filtering = false
 	m.threadOpen = false
@@ -1098,8 +1120,16 @@ func (m Model) switchTeam(index int) (tea.Model, tea.Cmd) {
 	if m.composerReady() {
 		m.composer.Reset()
 	}
-	m.status = "loading scope…"
-	m.refreshViewport()
+	if cachedChannels := m.scopeChannels[m.scopeKey()]; len(cachedChannels) > 0 {
+		m.channels = append([]domain.Channel(nil), cachedChannels...)
+		m.selectedChannel = m.pickChannel()
+		m.switchDraft(m.currentDraftKey())
+		m.showCachedPosts(m.currentChannelID())
+		m.status = "cached · refreshing scope…"
+	} else {
+		m.status = "loading scope…"
+		m.refreshViewport()
+	}
 	return m, m.loadCurrentScopeCmd()
 }
 
@@ -1391,7 +1421,7 @@ func (m Model) handleThreadKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		pendingID := m.beginPendingSend(key, text)
 		m.status = "sending reply…"
 		return m, sendReplyCmd(m.ctx, m.backend, m.currentChannelID(), m.threadRootID, key, pendingID, text)
-	case "ctrl+j":
+	case "alt+enter":
 		m.composer.InsertString("\n")
 		return m, nil
 	}
@@ -2000,13 +2030,13 @@ const (
 
 func paneFocusTarget(msg tea.KeyMsg) (paneTarget, bool) {
 	switch msg.String() {
-	case "ctrl+b", "alt+s", "alt+1":
+	case "ctrl+b", "alt+s", "alt+1", "ctrl+h":
 		return paneTargetSidebar, true
-	case "alt+2":
+	case "alt+2", "ctrl+k":
 		return paneTargetTimeline, true
-	case "alt+3":
+	case "alt+3", "ctrl+j":
 		return paneTargetComposer, true
-	case "alt+4":
+	case "alt+4", "ctrl+l":
 		return paneTargetThread, true
 	default:
 		return 0, false
@@ -2255,6 +2285,7 @@ func (m *Model) showCachedPosts(channelID string) bool {
 		return false
 	}
 	m.posts = append([]domain.Post(nil), posts...)
+	m.selectedPost = m.initialSelectedPost(channelID)
 	m.refreshViewport()
 	m.viewport.GotoBottom()
 	return true

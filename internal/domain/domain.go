@@ -53,6 +53,17 @@ type PostReaction struct {
 	Reacted bool
 }
 
+// PostFile is a file/image attached to a chat post.
+type PostFile struct {
+	ID        string
+	Name      string
+	Extension string
+	MIMEType  string
+	Size      int64
+	Width     int
+	Height    int
+}
+
 // Post is a normalized chat message.
 type Post struct {
 	ID           string
@@ -68,6 +79,7 @@ type Post struct {
 	UpdateAt     int64
 	ReplyCount   int
 	Reactions    []PostReaction
+	Files        []PostFile
 }
 
 // Session contains initial data returned after connecting.

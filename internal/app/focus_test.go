@@ -62,7 +62,7 @@ func TestRenderComposerShowsDestinationWithoutChangingHeight(t *testing.T) {
 
 	got := m.renderComposer(80)
 
-	if !strings.Contains(got, "to # Town") || !strings.Contains(got, "enter send") || !strings.Contains(got, "ctrl+j newline") {
+	if !strings.Contains(got, "to # Town") || !strings.Contains(got, "enter send") || !strings.Contains(got, "alt+enter newline") {
 		t.Fatalf("composer label missing destination/help: %q", got)
 	}
 	if strings.Contains(got, "tab nav") || strings.Contains(got, "message # Town") {
@@ -284,5 +284,59 @@ func TestRussianStatusTranslatesConnectionAndHints(t *testing.T) {
 	got := m.renderStatus(160)
 	if !strings.Contains(got, "переподключение") || !strings.Contains(got, "готово") || !strings.Contains(got, "лента") {
 		t.Fatalf("russian status missing translations: %q", got)
+	}
+}
+
+func TestCtrlHJKLPaneNavigation(t *testing.T) {
+	m := New(mock.New(), config.Config{Mock: true}, false)
+	m.channels = []domain.Channel{{ID: "c1", Type: "O", DisplayName: "Town"}}
+	m.selectedChannel = 0
+	m.focus = focusComposer
+	m.composer.SetValue("draft")
+
+	updated, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlH})
+	m = updated.(Model)
+	if m.focus != focusSidebar || m.composer.Value() != "draft" {
+		t.Fatalf("ctrl+h should focus sidebar preserving draft: focus=%v draft=%q", m.focus, m.composer.Value())
+	}
+
+	updated, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlK})
+	m = updated.(Model)
+	if m.focus != focusTimeline || m.switcherOpen {
+		t.Fatalf("ctrl+k should focus timeline, not switcher: focus=%v switcher=%v", m.focus, m.switcherOpen)
+	}
+
+	updated, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = updated.(Model)
+	if m.focus != focusComposer {
+		t.Fatalf("ctrl+j should focus composer: focus=%v", m.focus)
+	}
+
+	m.threadOpen = true
+	m.threadRootID = "root"
+	m.threadFocusComposer = true
+	m.threadPosts = []domain.Post{{ID: "root", ChannelID: "c1", Username: "Alice", Message: "root"}}
+	updated, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlL})
+	m = updated.(Model)
+	if !m.threadOpen || m.focus != focusComposer || m.threadFocusComposer {
+		t.Fatalf("ctrl+l should focus thread messages: threadOpen=%v focus=%v threadComposer=%v", m.threadOpen, m.focus, m.threadFocusComposer)
+	}
+}
+
+func TestAltEnterInsertsComposerNewline(t *testing.T) {
+	m := New(mock.New(), config.Config{Mock: true}, false)
+	m.focus = focusComposer
+	m.composer.SetValue("hello")
+
+	updated, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
+	got := updated.(Model)
+	if got.composer.Value() != "hello\n" {
+		t.Fatalf("alt+enter should insert newline, got %q", got.composer.Value())
+	}
+
+	updated, _ = got.handleKey(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	got = updated.(Model)
+	if got.composer.Value() != "hello\n" || got.focus != focusComposer {
+		t.Fatalf("ctrl+j should navigate to composer without inserting newline: focus=%v value=%q", got.focus, got.composer.Value())
 	}
 }

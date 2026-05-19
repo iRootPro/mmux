@@ -37,7 +37,7 @@ func TestRenderStatusShowsComposerAndThreadHints(t *testing.T) {
 	if !strings.Contains(got, "at latest") {
 		t.Fatalf("composer status should show scroll context: %q", got)
 	}
-	for _, duplicate := range []string{"composer", "enter send", "ctrl+j newline", "tab nav"} {
+	for _, duplicate := range []string{"composer", "enter send", "alt+enter newline", "tab nav"} {
 		if strings.Contains(got, duplicate) {
 			t.Fatalf("composer status duplicates composer hint %q in: %q", duplicate, got)
 		}

@@ -7,12 +7,12 @@ import (
 )
 
 func TestParseMergesFileEnvAndCLI(t *testing.T) {
-	for _, key := range []string{"BAND_URL", "BAND_TOKEN", "BAND_USERNAME", "BAND_PASSWORD", "BAND_TEAM", "BAND_CHANNEL", "BAND_LANG", "BAND_MOCK", "MATTERMOST_URL", "MATTERMOST_TOKEN"} {
+	for _, key := range []string{"MMUX_URL", "MMUX_TOKEN", "MMUX_USERNAME", "MMUX_PASSWORD", "MMUX_TEAM", "MMUX_CHANNEL", "MMUX_LANG", "MMUX_MOCK", "BAND_URL", "BAND_TOKEN", "BAND_USERNAME", "BAND_PASSWORD", "BAND_TEAM", "BAND_CHANNEL", "BAND_LANG", "BAND_MOCK", "MATTERMOST_URL", "MATTERMOST_TOKEN"} {
 		t.Setenv(key, "")
 	}
-	t.Setenv("BAND_TOKEN", "env-token")
-	t.Setenv("BAND_TEAM", "env-team")
-	t.Setenv("BAND_LANG", "ru")
+	t.Setenv("MMUX_TOKEN", "env-token")
+	t.Setenv("MMUX_TEAM", "env-team")
+	t.Setenv("MMUX_LANG", "ru")
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")

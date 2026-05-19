@@ -214,7 +214,7 @@ func (c *Client) loadPosts(ctx context.Context, channelID, beforePostID string, 
 	}
 
 	var list mmPostList
-	path := fmt.Sprintf("/api/v4/channels/%s/posts?page=0&per_page=%d", url.PathEscape(channelID), limit)
+	path := fmt.Sprintf("/api/v4/channels/%s/posts?page=0&per_page=%d&include_file_metadata=true", url.PathEscape(channelID), limit)
 	if beforePostID != "" {
 		path += "&before=" + url.QueryEscape(beforePostID)
 	}
@@ -287,7 +287,7 @@ func (c *Client) LoadThread(ctx context.Context, postID string) ([]domain.Post, 
 		return nil, fmt.Errorf("post ID is empty")
 	}
 	var list mmPostList
-	path := "/api/v4/posts/" + url.PathEscape(postID) + "/thread"
+	path := "/api/v4/posts/" + url.PathEscape(postID) + "/thread?include_file_metadata=true"
 	if err := c.do(ctx, http.MethodGet, path, nil, &list); err != nil {
 		return nil, fmt.Errorf("get thread: %w", err)
 	}
@@ -416,7 +416,7 @@ func (c *Client) usernameFor(userID string) string {
 
 func (c *Client) loadPostByID(ctx context.Context, postID string) (domain.Post, error) {
 	var post mmPost
-	if err := c.do(ctx, http.MethodGet, "/api/v4/posts/"+url.PathEscape(postID), nil, &post); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/api/v4/posts/"+url.PathEscape(postID)+"?include_file_metadata=true", nil, &post); err != nil {
 		return domain.Post{}, fmt.Errorf("get post: %w", err)
 	}
 	out := c.postToDomain(post, post.ChannelID)
@@ -822,6 +822,17 @@ type mmReaction struct {
 
 type mmPostMetadata struct {
 	Reactions []mmReaction `json:"reactions,omitempty"`
+	Files     []mmFileInfo `json:"files,omitempty"`
+}
+
+type mmFileInfo struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Extension string `json:"extension"`
+	MIMEType  string `json:"mime_type"`
+	Size      int64  `json:"size"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
 }
 
 type mmPost struct {
@@ -830,6 +841,7 @@ type mmPost struct {
 	RootID     string          `json:"root_id"`
 	UserID     string          `json:"user_id"`
 	Message    string          `json:"message"`
+	FileIDs    []string        `json:"file_ids,omitempty"`
 	CreateAt   int64           `json:"create_at"`
 	UpdateAt   int64           `json:"update_at"`
 	DeleteAt   int64           `json:"delete_at"`
@@ -851,5 +863,41 @@ func (p mmPost) toDomain(fallbackChannelID string) domain.Post {
 		CreateAt:   p.CreateAt,
 		UpdateAt:   p.UpdateAt,
 		ReplyCount: p.ReplyCount,
+		Files:      postFilesToDomain(p.Metadata, p.FileIDs),
 	}
+}
+
+func postFilesToDomain(metadata *mmPostMetadata, fileIDs []string) []domain.PostFile {
+	out := make([]domain.PostFile, 0, len(fileIDs))
+	seen := make(map[string]struct{}, len(fileIDs))
+	if metadata != nil {
+		out = make([]domain.PostFile, 0, max(len(metadata.Files), len(fileIDs)))
+		for _, file := range metadata.Files {
+			if file.ID == "" && file.Name == "" {
+				continue
+			}
+			out = append(out, domain.PostFile{
+				ID:        file.ID,
+				Name:      file.Name,
+				Extension: file.Extension,
+				MIMEType:  file.MIMEType,
+				Size:      file.Size,
+				Width:     file.Width,
+				Height:    file.Height,
+			})
+			if file.ID != "" {
+				seen[file.ID] = struct{}{}
+			}
+		}
+	}
+	for _, id := range fileIDs {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		out = append(out, domain.PostFile{ID: id})
+	}
+	return out
 }

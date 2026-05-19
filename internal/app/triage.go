@@ -305,7 +305,7 @@ func buildMentionTriageItems(m Model) []triageItem {
 			item.RootID = post.RootID
 			item.PostID = post.ID
 			item.Actor = triageActor(post)
-			item.Preview = triagePreview(post.Message)
+			item.Preview = triagePostPreview(post)
 			item.CreateAt = post.CreateAt
 			break
 		}
@@ -431,7 +431,7 @@ func buildUnreadChannelTriageItems(m Model, mentions []triageItem, threads []tri
 				item.PostID = post.ID
 				item.RootID = triageThreadRootID(post)
 				item.Actor = triageActor(post)
-				item.Preview = triagePreview(post.Message)
+				item.Preview = triagePostPreview(post)
 				item.CreateAt = post.CreateAt
 			}
 		} else if triageMentionCoverageForChannel(mentions, ch.ID) > 0 || covered >= ch.Unread {
@@ -455,7 +455,7 @@ func triageUnreadChannelItem(m Model, ch domain.Channel, threads []triageItem) t
 		item.PostID = post.ID
 		item.RootID = triageThreadRootID(post)
 		item.Actor = triageActor(post)
-		item.Preview = triagePreview(post.Message)
+		item.Preview = triagePostPreview(post)
 		item.CreateAt = post.CreateAt
 	}
 	return item
@@ -693,18 +693,22 @@ func triagePreview(message string) string {
 	return strings.Join(strings.Fields(message), " ")
 }
 
+func triagePostPreview(post domain.Post) string {
+	return triagePreview(postPlainText(post))
+}
+
 func triageThreadPreview(posts []domain.Post, post domain.Post) string {
 	rootID := triageThreadRootID(post)
 	for _, candidate := range posts {
 		if candidate.ID == rootID {
-			preview := triagePreview(candidate.Message)
+			preview := triagePostPreview(candidate)
 			if preview != "" {
 				return preview
 			}
 			break
 		}
 	}
-	return triagePreview(post.Message)
+	return triagePostPreview(post)
 }
 
 func triageThreadRootID(post domain.Post) string {

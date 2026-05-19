@@ -42,6 +42,7 @@ func New() *Backend {
 		items = append(items,
 			domain.Post{ID: ch.ID + "-latest-1", ChannelID: ch.ID, Username: "system", Message: "Welcome to " + ch.DisplayName + ". This is mock mode.", CreateAt: now.Add(-20 * time.Minute).UnixMilli()},
 			domain.Post{ID: ch.ID + "-latest-2", ChannelID: ch.ID, Username: "alisa", Message: "Минималистичный TUI уже почти живой ✨", CreateAt: now.Add(-8 * time.Minute).UnixMilli()},
+			domain.Post{ID: ch.ID + "-file-1", ChannelID: ch.ID, Username: "bot", Message: "", CreateAt: now.Add(-4 * time.Minute).UnixMilli(), Files: []domain.PostFile{{ID: "mock-file-1", Name: "screenshot.png", MIMEType: "image/png", Size: 245_760, Width: 1280, Height: 720}}},
 		)
 		posts[ch.ID] = items
 	}

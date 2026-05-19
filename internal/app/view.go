@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"band-tui/internal/domain"
@@ -31,6 +32,12 @@ var (
 	headerStyle  = lipgloss.NewStyle().Foreground(colorText).Bold(true)
 	boxStyle     = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(colorSubtle).Padding(0, 1)
 	focusStyle   = lipgloss.NewStyle().BorderForeground(colorAccent)
+
+	statusBarStyle     = lipgloss.NewStyle().Foreground(colorMuted).Background(lipgloss.AdaptiveColor{Light: "254", Dark: "234"}).Width(1)
+	statusChipBase     = lipgloss.NewStyle().Foreground(colorText).Background(lipgloss.AdaptiveColor{Light: "255", Dark: "236"}).Padding(0, 1)
+	statusKeyChip      = lipgloss.NewStyle().Foreground(colorAccent).Background(lipgloss.AdaptiveColor{Light: "254", Dark: "235"}).Padding(0, 1)
+	sidebarBadgeStyle  = lipgloss.NewStyle().Foreground(colorText).Background(lipgloss.AdaptiveColor{Light: "254", Dark: "236"}).Padding(0, 1)
+	sidebarMentionPill = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "255", Dark: "230"}).Background(colorAccent).Padding(0, 1)
 )
 
 func (m Model) sidebarWidth() int {
@@ -477,7 +484,7 @@ func (m Model) renderActivityLine(post domain.Post, width int) string {
 	if post.RootID != "" {
 		prefix = "↳ "
 	}
-	msg := strings.ReplaceAll(strings.TrimSpace(sanitizeMessageText(post.Message)), "\n", " ")
+	msg := strings.ReplaceAll(strings.TrimSpace(sanitizeMessageText(postPlainText(post))), "\n", " ")
 	line := fmt.Sprintf("%s%s · %s · %s", prefix, ch, user, msg)
 	return truncate(line, width)
 }
@@ -558,7 +565,7 @@ func (m Model) renderThreadHeader(width int) string {
 	}
 	help := "tab reply · alt+4 messages · alt+3 reply · alt+2 timeline · esc close · R react"
 	if m.threadFocusComposer {
-		help = "alt+4 messages · alt+2 timeline · enter reply · ctrl+j newline"
+		help = "alt+4 messages · alt+2 timeline · enter reply · alt+enter newline"
 	} else if m.focus == focusTimeline {
 		help = "alt+4 thread · alt+3 reply · esc close thread"
 	}
@@ -568,7 +575,7 @@ func (m Model) renderThreadHeader(width int) string {
 		if user == "" {
 			user = shortID(root.UserID)
 		}
-		text := strings.ReplaceAll(strings.TrimSpace(sanitizeMessageText(root.Message)), "\n", " ")
+		text := strings.ReplaceAll(strings.TrimSpace(sanitizeMessageText(postPlainText(root))), "\n", " ")
 		if text == "" {
 			text = "(empty)"
 		}
@@ -626,14 +633,14 @@ func (m Model) threadComposerLabel(width int) string {
 		if user == "" {
 			user = shortID(root.UserID)
 		}
-		text := strings.ReplaceAll(strings.TrimSpace(sanitizeMessageText(root.Message)), "\n", " ")
+		text := strings.ReplaceAll(strings.TrimSpace(sanitizeMessageText(postPlainText(root))), "\n", " ")
 		if text != "" {
 			prefix = m.tr("reply to") + ": " + user + " · " + text
 		} else {
 			prefix = m.tr("reply to") + ": " + user
 		}
 	}
-	return truncate(prefix+" · "+m.tr("enter send")+" · "+m.tr("ctrl+j newline"), width)
+	return truncate(prefix+" · "+m.tr("enter send")+" · "+m.tr("alt+enter newline"), width)
 }
 
 func (m Model) threadRootPost() (domain.Post, bool) {
@@ -699,6 +706,9 @@ func (m Model) renderThreadPostsWithOffsets(width int) (string, []int) {
 		for _, line := range renderMessageBodyLines(post, body, grouped, selected) {
 			writeLine(m.renderPostLine(line, selected))
 		}
+		for _, line := range m.renderAttachmentLines(post, max(20, width-6), grouped && body == "", selected) {
+			writeLine(m.renderPostLine(line, selected))
+		}
 		if badges := renderReactionBadges(post); badges != "" {
 			writeLine(m.renderPostLine(renderMessageBodyLine(badges, post, selected), selected))
 		}
@@ -735,7 +745,7 @@ func (m Model) renderSwitcher(width, height int) string {
 	}
 	b.WriteString(headerStyle.Render(m.tr("Go to")))
 	b.WriteString("\n")
-	b.WriteString(muted.Render("ctrl+p/ctrl+k · enter " + m.tr("open") + " · esc " + m.tr("close")))
+	b.WriteString(muted.Render("ctrl+p · enter " + m.tr("open") + " · esc " + m.tr("close")))
 	b.WriteString("\n\n")
 	b.WriteString(accent.Render("› "))
 	b.WriteString(sanitizeTerminal(query))
@@ -891,15 +901,15 @@ func presenceGlyphPlain(status string) string {
 func (m Model) renderSidebar(width, height int) string {
 	innerWidth := max(10, width-3)
 
-	headerLines := []string{accent.Bold(true).Render("scope: " + m.sidebarTitle())}
+	headerLines := []string{statusChipBase.Render("◆ " + m.sidebarTitle())}
 	if m.session != nil {
 		name := m.session.User.DisplayName
 		if name == "" {
 			name = "@" + m.session.User.Username
 		}
-		headerLines = append(headerLines, muted.Render(name))
+		headerLines = append(headerLines, muted.Render("👤 "+sanitizeTerminal(name)))
 	} else {
-		headerLines = append(headerLines, muted.Render("connecting"))
+		headerLines = append(headerLines, muted.Render("◌ "+m.tr("connecting…")))
 	}
 	if m.filtering || m.channelFilter != "" {
 		cursor := ""
@@ -908,7 +918,7 @@ func (m Model) renderSidebar(width, height int) string {
 		}
 		headerLines = append(headerLines, muted.Render("/ "+sanitizeTerminal(m.channelFilter)+cursor))
 	} else {
-		headerLines = append(headerLines, muted.Render("/ filter · F2 scopes"))
+		headerLines = append(headerLines, muted.Render("⌘ / "+m.tr("filter")+" · F2 scopes"))
 	}
 	headerLines = append(headerLines, "")
 
@@ -982,10 +992,10 @@ func (m Model) sidebarListLines(width int) ([]sidebarLine, int) {
 	}
 
 	sections := []sidebarSection{
-		{ID: sectionFavorites, Title: "ИЗБРАННОЕ"},
-		{ID: sectionChannels, Title: "КАНАЛЫ", Types: []string{"O", "P"}},
-		{ID: sectionDirect, Title: "ЛИЧНЫЕ", Types: []string{"D"}},
-		{ID: sectionGroups, Title: "ГРУППЫ", Types: []string{"G"}},
+		{ID: sectionFavorites, Title: "★ Избранное"},
+		{ID: sectionChannels, Title: "# Каналы", Types: []string{"O", "P"}},
+		{ID: sectionDirect, Title: "@ Личные", Types: []string{"D"}},
+		{ID: sectionGroups, Title: "◦ Группы", Types: []string{"G"}},
 	}
 
 	var lines []sidebarLine
@@ -1013,7 +1023,9 @@ func (m Model) sidebarListLines(width int) ([]sidebarLine, int) {
 		if collapsed {
 			chevron = "▸"
 		}
-		lines = append(lines, sidebarLine{Text: muted.Render(fmt.Sprintf("%s %s %d", chevron, section.Title, len(sectionLines))), Section: section.Title, Header: true})
+		sectionLabel := fmt.Sprintf("%s %s", chevron, section.Title)
+		count := muted.Render(fmt.Sprintf("%d", len(sectionLines)))
+		lines = append(lines, sidebarLine{Text: muted.Render(joinLabelAndBadge(sectionLabel, count, width)), Section: section.Title, Header: true})
 		if !collapsed {
 			lines = append(lines, sectionLines...)
 		}
@@ -1026,7 +1038,7 @@ func (m Model) renderSidebarChannelLine(index, width int) string {
 	marker := "  "
 	style := muted
 	if index == m.selectedChannel {
-		marker = "› "
+		marker = "▌ "
 		style = accent.Bold(true)
 	}
 	prefix := "#"
@@ -1058,10 +1070,10 @@ func (m Model) renderSidebarChannelLine(index, width int) string {
 
 func channelBadge(ch domain.Channel) string {
 	if ch.Mentions > 0 {
-		return fmt.Sprintf("@%d", ch.Mentions)
+		return sidebarMentionPill.Render(fmt.Sprintf("@%d", ch.Mentions))
 	}
 	if ch.Unread > 0 {
-		return fmt.Sprintf("%d", ch.Unread)
+		return sidebarBadgeStyle.Render(fmt.Sprintf("%d", ch.Unread))
 	}
 	return ""
 }
@@ -1357,62 +1369,117 @@ func (m Model) composerLabel(width int) string {
 			target = prefix + " " + name
 		}
 	}
-	return truncate(m.tr("to")+" "+target+" · "+m.tr("enter send")+" · "+m.tr("ctrl+j newline"), width)
+	return truncate(m.tr("to")+" "+target+" · "+m.tr("enter send")+" · "+m.tr("alt+enter newline"), width)
 }
 
 func (m Model) renderStatus(width int) string {
-	status := m.tr(m.status)
-	if m.threadOpen {
-		status = m.threadStatusLine()
-	} else {
-		if status == "" {
-			status = m.tr("ready")
-		}
-		if m.loading {
-			status = "• " + status
-		}
-		if hint := m.focusStatusHint(); hint != "" {
-			status += "  " + muted.Render(hint)
-		}
+	if width <= 0 {
+		return ""
+	}
+	segments := make([]string, 0, 6)
+	if scope := m.sidebarTitle(); scope != "" {
+		segments = append(segments, m.statusChip("◆ "+m.tr("scope")+": "+scope, statusChipBase))
 	}
 	if net := m.connectionStatusText(); net != "" {
-		status = m.tr("net") + ": " + net + " · " + status
+		segments = append(segments, m.statusChip(m.connectionStatusIcon()+" "+m.tr("net")+": "+net, statusChipBase))
 	}
-	if scope := m.sidebarTitle(); scope != "" {
-		status = m.tr("scope") + ": " + scope + " · " + status
+	mainStatus := m.statusDisplayText(m.status)
+	if m.threadOpen {
+		mainStatus = m.threadStatusLine()
+	} else if mainStatus == "" {
+		mainStatus = m.tr("ready")
 	}
-	if strings.Contains(status, "connected") || strings.Contains(status, "sent") {
-		status = lipgloss.NewStyle().Foreground(colorSuccess).Render(status)
+	if mainStatus != "" {
+		icon := m.statusMainIcon(mainStatus)
+		segments = append(segments, m.statusChip(icon+" "+mainStatus, statusChipBase))
+	}
+	if !m.threadOpen {
+		if hint := m.focusStatusHint(); hint != "" {
+			segments = append(segments, m.statusChip("⌘ "+hint, statusKeyChip))
+		}
 	}
 	if m.err != "" {
-		status += "  " + errorText.Render(m.tr(m.err))
+		segments = append(segments, errorText.Render("⚠ "+m.tr(m.err)))
 	}
 	if badge := m.notificationBadge(); badge != "" {
-		status += "  " + accent.Render(badge)
+		segments = append(segments, accent.Render("@ "+badge))
 	}
-	return lipgloss.NewStyle().Foreground(colorMuted).Width(width).Padding(0, 1).Render(truncate(status, width-2))
+	status := strings.Join(segments, " ")
+	return statusBarStyle.Width(width).Padding(0, 1).Render(truncate(status, width-2))
+}
+
+func (m Model) statusChip(text string, style lipgloss.Style) string {
+	return style.Render(text)
+}
+
+func (m Model) statusMainIcon(status string) string {
+	if m.loading {
+		return "⟳"
+	}
+	lower := strings.ToLower(status)
+	if strings.Contains(lower, "connected") || strings.Contains(lower, "sent") || strings.Contains(lower, "подключено") || strings.Contains(lower, "отправ") {
+		return "✓"
+	}
+	if strings.Contains(lower, "failed") || strings.Contains(lower, "error") || strings.Contains(lower, "не удалось") {
+		return "⚠"
+	}
+	if strings.Contains(lower, "message") || strings.Contains(lower, "сообщ") {
+		return "💬"
+	}
+	return "✦"
+}
+
+func (m Model) connectionStatusIcon() string {
+	switch m.connectionState {
+	case domain.ConnectionConnected:
+		return "●"
+	case domain.ConnectionConnecting, domain.ConnectionReconnecting:
+		return "◌"
+	case domain.ConnectionAuthExpired:
+		return "⚠"
+	case domain.ConnectionOffline:
+		return "○"
+	default:
+		return "◇"
+	}
+}
+
+func (m Model) statusDisplayText(status string) string {
+	if status == "" {
+		return ""
+	}
+	if head, tail, ok := strings.Cut(status, " · "); ok {
+		return m.statusDisplayText(head) + " · " + m.tr(tail)
+	}
+	fields := strings.Fields(status)
+	if len(fields) == 2 && fields[1] == "messages" {
+		if n, err := strconv.Atoi(fields[0]); err == nil {
+			return fmt.Sprintf("%d %s", n, m.plural(n, "message", "messages"))
+		}
+	}
+	return m.tr(status)
 }
 
 func (m Model) focusStatusHint() string {
 	if m.isRussian() {
 		switch m.focus {
 		case focusSidebar:
-			return "сайдбар · enter открыть · / фильтр · alt+2 лента · alt+3 ввод"
+			return "сайдбар · enter открыть · / фильтр · ctrl+k лента · ctrl+j ввод"
 		case focusTimeline:
-			return "лента · j/k выбрать · t тред · y копия · n непрочит. · alt+1 сайдбар · alt+3 ввод"
+			return "лента · j/k выбрать · t тред · y копия · n непрочит. · ctrl+h сайдбар · ctrl+j ввод"
 		case focusComposer:
-			return m.timelinePositionLabel() + " · alt+1 сайдбар · alt+2 лента"
+			return m.timelinePositionLabel() + " · ctrl+h сайдбар · ctrl+k лента"
 		default:
 			return "? помощь"
 		}
 	}
 	switch m.focus {
 	case focusSidebar:
-		return "sidebar · enter open · / filter · alt+2 timeline · alt+3 compose"
+		return "sidebar · enter open · / filter · ctrl+k timeline · ctrl+j compose"
 	case focusTimeline:
-		return "timeline · j/k select · t thread · y copy · n unread · alt+1 sidebar · alt+3 compose"
+		return "timeline · j/k select · t thread · y copy · n unread · ctrl+h sidebar · ctrl+j compose"
 	case focusComposer:
-		return m.timelinePositionLabel() + " · alt+1 sidebar · alt+2 timeline"
+		return m.timelinePositionLabel() + " · ctrl+h sidebar · ctrl+k timeline"
 	default:
 		return "? help"
 	}
@@ -1550,6 +1617,9 @@ func (m Model) renderPosts() (string, []int) {
 		for _, line := range renderMessageBodyLines(p, body, grouped, selected) {
 			writeLine(m.renderPostLine(line, selected))
 		}
+		for _, line := range m.renderAttachmentLines(p, max(20, m.viewport.Width-8), grouped && body == "", selected) {
+			writeLine(m.renderPostLine(line, selected))
+		}
 		if badges := renderReactionBadges(p); badges != "" {
 			writeLine(m.renderPostLine(renderMessageBodyLine(badges, p, selected), selected))
 		}
@@ -1613,6 +1683,9 @@ func renderMessageGutter(post domain.Post, selected bool, includeImportantDot bo
 }
 
 func renderMessageBodyLines(post domain.Post, body string, grouped bool, selected bool) []string {
+	if body == "" {
+		return nil
+	}
 	bodyLines := strings.Split(body, "\n")
 	out := make([]string, 0, len(bodyLines))
 	if !grouped {
@@ -1637,6 +1710,79 @@ func renderMessageBodyLine(line string, post domain.Post, selected bool) string 
 	return renderMessageGutter(post, selected, false) + line
 }
 
+func (m Model) renderAttachmentLines(post domain.Post, width int, groupedNoBody bool, selected bool) []string {
+	if len(post.Files) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(post.Files))
+	timestamp := formatTime(post.CreateAt)
+	indent := ""
+	if groupedNoBody {
+		indent = timestamp + "  "
+	}
+	for i, file := range post.Files {
+		prefix := indent
+		if groupedNoBody && i > 0 {
+			prefix = strings.Repeat(" ", len([]rune(timestamp))+2)
+		}
+		line := prefix + m.attachmentLabel(file)
+		if width > 0 {
+			line = truncate(line, width)
+		}
+		out = append(out, renderMessageGutter(post, selected, false)+line)
+	}
+	return out
+}
+
+func (m Model) attachmentLabel(file domain.PostFile) string {
+	name := sanitizeTerminal(strings.TrimSpace(file.Name))
+	if name == "" {
+		name = m.tr("file")
+		if file.ID != "" {
+			name += " " + shortID(file.ID)
+		}
+	}
+	parts := []string{name}
+	var details []string
+	if file.Size > 0 {
+		details = append(details, formatFileSize(file.Size))
+	}
+	if file.MIMEType != "" {
+		details = append(details, sanitizeTerminal(file.MIMEType))
+	} else if file.Extension != "" {
+		details = append(details, sanitizeTerminal(file.Extension))
+	}
+	if file.Width > 0 && file.Height > 0 {
+		details = append(details, fmt.Sprintf("%d×%d", file.Width, file.Height))
+	}
+	if len(details) > 0 {
+		parts = append(parts, "("+strings.Join(details, " · ")+")")
+	}
+	suffix := ""
+	if len(parts) > 1 {
+		suffix = " " + strings.Join(parts[1:], " ")
+	}
+	return muted.Render("📎 ") + accent.Render(parts[0]) + muted.Render(suffix)
+}
+
+func formatFileSize(size int64) string {
+	if size < 1024 {
+		return fmt.Sprintf("%d B", size)
+	}
+	units := []string{"KB", "MB", "GB", "TB"}
+	value := float64(size)
+	for _, unit := range units {
+		value /= 1024
+		if value < 1024 {
+			if value >= 10 {
+				return fmt.Sprintf("%.0f %s", value, unit)
+			}
+			return fmt.Sprintf("%.1f %s", value, unit)
+		}
+	}
+	return fmt.Sprintf("%.0f PB", value/1024)
+}
+
 func firstImportantPostIndex(posts []domain.Post) int {
 	for i, post := range posts {
 		if isImportantPost(post) {
@@ -1658,8 +1804,9 @@ func (m Model) helpText() string {
 	if m.isRussian() {
 		return strings.TrimSpace(`Клавиши
 
-  ctrl+p / ctrl+k   быстрый переход / команды
+  ctrl+p            быстрый переход / команды
   alt+1/2/3/4       сайдбар / лента / ввод / тред
+  ctrl+h/j/k/l      сайдбар / ввод / лента / тред как в tmux/vim
   ctrl+b / alt+s    перейти в левый сайдбар из любого места
   alt+,             настройки из любого места
   ,                 настройки, когда вы не печатаете
@@ -1680,7 +1827,7 @@ func (m Model) helpText() string {
   left/right        свернуть/развернуть секцию
   space или x       переключить секцию
   enter             отправить сообщение или открыть канал
-  ctrl+j            новая строка
+  alt+enter         новая строка
   [ или ctrl+o      загрузить старые сообщения
   y                 скопировать текст сообщения
   p                 скопировать permalink
@@ -1704,8 +1851,9 @@ func (m Model) helpText() string {
 	}
 	return strings.TrimSpace(`Keys
 
-  ctrl+p / ctrl+k   quick switcher / go to
+  ctrl+p            quick switcher / go to
   alt+1/2/3/4       sidebar / timeline / composer / thread
+  ctrl+h/j/k/l      sidebar / composer / timeline / thread like tmux/vim
   ctrl+b / alt+s    focus left sidebar from anywhere
   alt+,             open settings from anywhere
   ,                 open settings when not typing
@@ -1726,7 +1874,7 @@ func (m Model) helpText() string {
   left/right        collapse/expand current section
   space or x        toggle current section
   enter             send message or open selected channel
-  ctrl+j            insert newline in composer
+  alt+enter         insert newline in composer
   [ or ctrl+o       load older messages
   y                 copy selected message text
   p                 copy selected message permalink

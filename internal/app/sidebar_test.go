@@ -26,7 +26,7 @@ func TestSidebarTitleKeepsWorkspaceWhenTeamLooksLikeUser(t *testing.T) {
 func TestRenderSidebarShowsScopeLabel(t *testing.T) {
 	m := Model{width: 120, session: &domain.Session{User: domain.User{DisplayName: "Sasha"}, Teams: []domain.Team{{DisplayName: "Infra"}}}}
 	got := m.renderSidebar(32, 10)
-	if !strings.Contains(got, "scope: Infra") || !strings.Contains(got, "F2 scopes") {
+	if !strings.Contains(got, "◆ Infra") || !strings.Contains(got, "F2 scopes") {
 		t.Fatalf("sidebar = %q", got)
 	}
 }
