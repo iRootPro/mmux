@@ -106,3 +106,17 @@ func TestSettingsCanSaveConnection(t *testing.T) {
 		t.Fatalf("saved server = %q", cfg.ServerURL)
 	}
 }
+
+func TestNewWithoutConnectionOpensSetup(t *testing.T) {
+	m := New(nil, config.Config{}, false)
+	if !m.setupRequired || !m.settingsOpen || m.loading || m.status != "setup required" {
+		t.Fatalf("setup state not opened: setup=%v settings=%v loading=%v status=%q", m.setupRequired, m.settingsOpen, m.loading, m.status)
+	}
+	if cmd := m.Init(); cmd != nil {
+		t.Fatal("setup mode should not connect on init")
+	}
+	got := m.renderSettings(120, 40)
+	if !strings.Contains(got, "Enter server URL") {
+		t.Fatalf("setup guidance missing: %q", got)
+	}
+}

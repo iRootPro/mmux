@@ -64,9 +64,6 @@ func Parse(args []string) (Options, error) {
 		return Options{}, err
 	}
 	merged := merge(fileCfg, envConfig(), cfg)
-	if merged.ServerURL == "" {
-		merged.ServerURL = "https://band.wb.ru"
-	}
 	merged.ServerURL = strings.TrimRight(merged.ServerURL, "/")
 	merged.Config = cfg.Config
 	merged.Mock = cfg.Mock || truthyEnv("MMUX_MOCK") || truthyEnv("BAND_MOCK")

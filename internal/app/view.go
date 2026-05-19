@@ -126,6 +126,8 @@ func (m Model) renderSettings(width, height int) string {
 	b.WriteString("\n")
 	if m.settingsEditing {
 		b.WriteString(muted.Render(m.tr("editing: type, enter save, esc cancel, ctrl+u clear")))
+	} else if m.setupRequired {
+		b.WriteString(accent.Render(m.tr("Enter server URL and token, save, then restart.")))
 	} else {
 		b.WriteString(muted.Render(m.tr("Connection changes are used after restart.")))
 	}
@@ -1882,9 +1884,9 @@ func (m Model) helpText() string {
 
 Конфиг
 
-  BAND_URL=https://band.wb.ru
-  BAND_TOKEN=...
-  BAND_LANG=ru
+  MMUX_URL=https://mattermost.example.com
+  MMUX_TOKEN=...
+  MMUX_LANG=ru
 
 или ~/.config/band-tui/config.json с server_url, token и language.`)
 	}
@@ -1929,9 +1931,9 @@ func (m Model) helpText() string {
 
 Config
 
-  BAND_URL=https://band.wb.ru
-  BAND_TOKEN=...
-  BAND_LANG=ru
+  MMUX_URL=https://mattermost.example.com
+  MMUX_TOKEN=...
+  MMUX_LANG=ru
 
 or ~/.config/band-tui/config.json with server_url, token and language.`)
 }

@@ -111,14 +111,15 @@ type Model struct {
 	width  int
 	height int
 
-	status       string
-	err          string
-	loading      bool
-	loadingOlder bool
-	hasOlder     bool
-	watching     bool
-	showHelp     bool
-	mockFallback bool
+	status        string
+	err           string
+	loading       bool
+	loadingOlder  bool
+	hasOlder      bool
+	watching      bool
+	showHelp      bool
+	mockFallback  bool
+	setupRequired bool
 }
 
 func New(backend domain.Backend, cfg config.Config, mockFallback bool) Model {
@@ -173,13 +174,28 @@ func New(backend domain.Backend, cfg config.Config, mockFallback bool) Model {
 		hasOlder:          true,
 		mockFallback:      mockFallback,
 	}
-	if !cfg.Mock && !mockFallback {
+	m.setupRequired = !mockFallback && needsInitialSetup(cfg)
+	if m.setupRequired {
+		m.loading = false
+		m.connectionState = domain.ConnectionOffline
+		m.status = "setup required"
+		m.settingsOpen = true
+		m.settingsDraftServer = cfg.ServerURL
+		m.settingsDraftToken = cfg.Token
+	} else if !cfg.Mock && !mockFallback {
 		m.applyCachedState(loadAppCache(cfg))
 	}
 	return m
 }
 
+func needsInitialSetup(cfg config.Config) bool {
+	return !cfg.Mock && (strings.TrimSpace(cfg.ServerURL) == "" || !config.HasCredentials(cfg))
+}
+
 func (m Model) Init() tea.Cmd {
+	if m.setupRequired {
+		return nil
+	}
 	return connectCmd(m.ctx, m.backend)
 }
 

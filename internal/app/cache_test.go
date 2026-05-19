@@ -10,7 +10,7 @@ import (
 
 func TestNewRestoresDiskCacheForImmediateStartup(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(t.TempDir(), "cache"))
-	cfg := config.Config{ServerURL: "https://chat.example.com"}
+	cfg := config.Config{ServerURL: "https://chat.example.com", Token: "token"}
 	session := &domain.Session{ServerURL: cfg.ServerURL, User: domain.User{ID: "me", Username: "me"}, Teams: []domain.Team{{ID: "team-1", Name: "team"}}}
 	cache := appCache{
 		Version:           appCacheVersion,

@@ -58,3 +58,18 @@ func TestHasCredentials(t *testing.T) {
 		t.Fatal("partial credentials should not count")
 	}
 }
+
+func TestParseDoesNotDefaultServerURL(t *testing.T) {
+	for _, key := range []string{"MMUX_URL", "BAND_URL", "MATTERMOST_URL"} {
+		t.Setenv(key, "")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "missing.json")
+	opts, err := Parse([]string{"--config", path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Config.ServerURL != "" {
+		t.Fatalf("server should not default, got %q", opts.Config.ServerURL)
+	}
+}

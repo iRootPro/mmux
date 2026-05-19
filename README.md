@@ -75,6 +75,15 @@ mmux --help
 ## Run
 
 ```bash
+mmux
+```
+
+On first launch, if no server is configured, mmux opens onboarding settings.
+Enter your Mattermost server URL and token, save, then restart.
+
+For offline UI/demo mode:
+
+```bash
 mmux --mock
 ```
 
@@ -192,4 +201,4 @@ go test ./...
 go build ./...
 ```
 
-If no credentials are provided, the TUI falls back to mock mode so design and interaction work can continue offline.
+Use `mmux --mock` for offline UI/design work without credentials.

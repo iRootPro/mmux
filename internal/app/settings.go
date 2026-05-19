@@ -175,8 +175,9 @@ func (m Model) saveConnectionSettings() (tea.Model, tea.Cmd) {
 	m.cfg.ServerURL = serverURL
 	m.cfg.Token = token
 	m.status = "connection settings saved"
-	if changedConnection {
+	if changedConnection || m.setupRequired {
 		m.status = "connection settings saved · restart to connect"
+		m.setupRequired = false
 	}
 	return m, saveConnectionSettingsCmd(m.cfg.Config, m.cfg)
 }

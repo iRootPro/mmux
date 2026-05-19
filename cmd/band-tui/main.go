@@ -102,8 +102,8 @@ func runDoctor(cfg config.Config) error {
 }
 
 func backendForTUI(cfg config.Config) (domain.Backend, bool) {
-	if cfg.Mock || !config.HasCredentials(cfg) {
-		return mock.New(), !cfg.Mock
+	if cfg.Mock {
+		return mock.New(), false
 	}
 	return mattermost.New(cfg), false
 }
@@ -142,7 +142,7 @@ Usage:
   band-tui [flags] doctor   check API access
 
 Flags:
-  --server URL      default https://band.wb.ru
+  --server URL      Mattermost server URL
   --token TOKEN     personal/session token
   --username USER   login/password auth user
   --password PASS   login/password auth password
@@ -153,7 +153,7 @@ Flags:
   --mock            run against built-in mock data
 
 Environment:
-  MMUX_URL, MMUX_TOKEN, MMUX_USERNAME, MMUX_PASSWORD, MMUX_TEAM, MMUX_CHANNEL, MMUX_LANG
+  MMUX_URL, MMUX_TOKEN, MMUX_USERNAME, MMUX_PASSWORD, MMUX_TEAM, MMUX_CHANNEL, MMUX_LANG, MMUX_MOCK=1
 
 `)
 }
