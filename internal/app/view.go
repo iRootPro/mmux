@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -209,6 +210,13 @@ func (m Model) renderInfo(width, height int) string {
 }
 
 func (m Model) renderInfoBody(ch domain.Channel, width int) string {
+	if (ch.Type == "D" || ch.Type == "G") && len(ch.Users) > 0 {
+		return m.renderUserInfoBody(ch, width)
+	}
+	return m.renderChannelInfoBody(ch, width)
+}
+
+func (m Model) renderChannelInfoBody(ch domain.Channel, width int) string {
 	var b strings.Builder
 	name := ch.DisplayName
 	if name == "" {
@@ -235,27 +243,12 @@ func (m Model) renderInfoBody(ch domain.Channel, width int) string {
 		b.WriteString(muted.Render(statusLabel(ch.Status)))
 	}
 	b.WriteString("\n\n")
-	facts := []string{}
-	if ch.MemberCount > 0 {
-		facts = append(facts, fmt.Sprintf("members: %d", ch.MemberCount))
-	}
-	if ch.Unread > 0 {
-		facts = append(facts, fmt.Sprintf("unread: %d", ch.Unread))
-	}
-	if ch.Mentions > 0 {
-		facts = append(facts, fmt.Sprintf("mentions: %d", ch.Mentions))
-	}
-	if ch.LastPostAt > 0 {
-		facts = append(facts, "last post: "+formatDate(ch.LastPostAt)+" "+formatTime(ch.LastPostAt))
-	}
-	for _, fact := range facts {
-		b.WriteString(muted.Render("• "))
-		b.WriteString(sanitizeTerminal(fact))
-		b.WriteString("\n")
-	}
-	if len(facts) > 0 {
-		b.WriteString("\n")
-	}
+	m.writeInfoFacts(&b, []infoFactLine{
+		infoFact("members", fmt.Sprintf("%d", ch.MemberCount), ch.MemberCount > 0),
+		infoFact("unread", fmt.Sprintf("%d", ch.Unread), ch.Unread > 0),
+		infoFact("mentions", fmt.Sprintf("%d", ch.Mentions), ch.Mentions > 0),
+		infoFact("last post", formatDate(ch.LastPostAt)+" "+formatTime(ch.LastPostAt), ch.LastPostAt > 0),
+	})
 	if strings.TrimSpace(ch.Header) != "" {
 		b.WriteString(headerStyle.Render("Header"))
 		b.WriteString("\n")
@@ -268,8 +261,141 @@ func (m Model) renderInfoBody(ch domain.Channel, width int) string {
 		b.WriteString(renderMarkdownMessage(ch.Purpose, width))
 		b.WriteString("\n\n")
 	}
-	b.WriteString(muted.Render("id: " + ch.ID))
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func (m Model) renderUserInfoBody(ch domain.Channel, width int) string {
+	var b strings.Builder
+	if ch.Type == "G" && len(ch.Users) > 1 {
+		name := ch.DisplayName
+		if name == "" {
+			name = ch.Name
+		}
+		b.WriteString(headerStyle.Render("◦ " + sanitizeTerminal(name)))
+		b.WriteString("\n")
+		b.WriteString(muted.Render(fmt.Sprintf("group message · %d members", len(ch.Users))))
+		b.WriteString("\n\n")
+		for i, user := range ch.Users {
+			if i > 0 {
+				b.WriteString("\n")
+			}
+			m.writeUserCard(&b, user, width, false)
+		}
+		return strings.TrimRight(b.String(), "\n")
+	}
+	m.writeUserCard(&b, ch.Users[0], width, true)
+	b.WriteString("\n")
+	m.writeInfoFacts(&b, []infoFactLine{
+		infoFact("channel", "direct message", true),
+		infoFact("unread", fmt.Sprintf("%d", ch.Unread), ch.Unread > 0),
+		infoFact("mentions", fmt.Sprintf("%d", ch.Mentions), ch.Mentions > 0),
+		infoFact("last post", formatDate(ch.LastPostAt)+" "+formatTime(ch.LastPostAt), ch.LastPostAt > 0),
+	})
+	return strings.TrimRight(b.String(), "\n")
+}
+
+type infoFactLine struct {
+	Key   string
+	Value string
+	Show  bool
+}
+
+func infoFact(key, value string, show bool) infoFactLine {
+	return infoFactLine{Key: key, Value: value, Show: show}
+}
+
+func (m Model) writeInfoFacts(b *strings.Builder, facts []infoFactLine) {
+	wrote := false
+	for _, fact := range facts {
+		value := strings.TrimSpace(fact.Value)
+		if !fact.Show || value == "" {
+			continue
+		}
+		b.WriteString(muted.Render("• "))
+		b.WriteString(sanitizeTerminal(fact.Key))
+		b.WriteString(muted.Render(": "))
+		b.WriteString(sanitizeTerminal(value))
+		b.WriteString("\n")
+		wrote = true
+	}
+	if wrote {
+		b.WriteString("\n")
+	}
+}
+
+func (m Model) writeUserCard(b *strings.Builder, user domain.User, width int, expanded bool) {
+	name := strings.TrimSpace(user.DisplayName)
+	if name == "" {
+		name = strings.TrimSpace(user.Username)
+	}
+	if name == "" {
+		name = shortID(user.ID)
+	}
+	b.WriteString(headerStyle.Render(presenceGlyph(user.Status) + sanitizeTerminal(name)))
+	b.WriteString("\n")
+	subtitle := []string{}
+	if user.Username != "" {
+		subtitle = append(subtitle, "@"+user.Username)
+	}
+	if user.Status != "" {
+		subtitle = append(subtitle, statusLabel(user.Status))
+	}
+	if user.Position != "" {
+		subtitle = append(subtitle, user.Position)
+	}
+	if len(subtitle) > 0 {
+		b.WriteString(muted.Render(truncate(strings.Join(subtitle, " · "), width)))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	m.writeInfoFacts(b, userInfoFacts(user, expanded))
+	if len(user.Timezone) > 0 {
+		b.WriteString(headerStyle.Render("Timezone"))
+		b.WriteString("\n")
+		m.writeInfoFacts(b, mapInfoFacts(user.Timezone))
+	}
+	if len(user.Props) > 0 {
+		b.WriteString(headerStyle.Render("Props"))
+		b.WriteString("\n")
+		m.writeInfoFacts(b, mapInfoFacts(user.Props))
+	}
+}
+
+func userInfoFacts(user domain.User, expanded bool) []infoFactLine {
+	return []infoFactLine{
+		infoFact("id", user.ID, expanded && user.ID != ""),
+		infoFact("username", "@"+user.Username, user.Username != ""),
+		infoFact("email", user.Email, user.Email != ""),
+		infoFact("first name", user.FirstName, user.FirstName != ""),
+		infoFact("last name", user.LastName, user.LastName != ""),
+		infoFact("nickname", user.Nickname, user.Nickname != ""),
+		infoFact("position", user.Position, user.Position != ""),
+		infoFact("roles", user.Roles, expanded && user.Roles != ""),
+		infoFact("locale", user.Locale, user.Locale != ""),
+		infoFact("auth", user.AuthService, expanded && user.AuthService != ""),
+		infoFact("mfa", fmt.Sprintf("%v", user.MFAActive), expanded && user.MFAActive),
+		infoFact("created", formatDate(user.CreateAt)+" "+formatTime(user.CreateAt), expanded && user.CreateAt > 0),
+		infoFact("updated", formatDate(user.UpdateAt)+" "+formatTime(user.UpdateAt), expanded && user.UpdateAt > 0),
+		infoFact("last active", formatDate(user.LastActivityAt)+" "+formatTime(user.LastActivityAt), user.LastActivityAt > 0),
+		infoFact("picture updated", formatDate(user.LastPictureUpdate)+" "+formatTime(user.LastPictureUpdate), expanded && user.LastPictureUpdate > 0),
+		infoFact("password updated", formatDate(user.LastPasswordUpdate)+" "+formatTime(user.LastPasswordUpdate), expanded && user.LastPasswordUpdate > 0),
+		infoFact("bot", user.BotDescription, user.BotDescription != ""),
+	}
+}
+
+func mapInfoFacts(values map[string]string) []infoFactLine {
+	keys := make([]string, 0, len(values))
+	for key, value := range values {
+		if strings.TrimSpace(value) != "" {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	facts := make([]infoFactLine, 0, len(keys))
+	for _, key := range keys {
+		facts = append(facts, infoFact(key, values[key], true))
+	}
+	return facts
 }
 
 func (m Model) renderActivity(width, height int) string {

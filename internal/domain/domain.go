@@ -8,13 +8,27 @@ import (
 
 // User is the authenticated Mattermost user.
 type User struct {
-	ID          string
-	Username    string
-	Nickname    string
-	FirstName   string
-	LastName    string
-	DisplayName string
-	Email       string
+	ID                 string
+	Username           string
+	Nickname           string
+	FirstName          string
+	LastName           string
+	DisplayName        string
+	Email              string
+	Position           string
+	Roles              string
+	Locale             string
+	Timezone           map[string]string
+	Props              map[string]string
+	AuthService        string
+	CreateAt           int64
+	UpdateAt           int64
+	LastActivityAt     int64
+	LastPictureUpdate  int64
+	LastPasswordUpdate int64
+	MFAActive          bool
+	BotDescription     string
+	Status             string
 }
 
 // Team is a Mattermost team visible to the user.
@@ -39,6 +53,7 @@ type Channel struct {
 	Purpose      string
 	MemberCount  int
 	UserIDs      []string
+	Users        []User
 	Status       string
 }
 

@@ -43,7 +43,7 @@ func TestClientConnectLoadAndSend(t *testing.T) {
 	mux.HandleFunc("/api/v4/users", func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Query().Get("in_channel") {
 		case "d1":
-			_ = json.NewEncoder(w).Encode([]mmUser{{ID: "u1", Username: "sasha", FirstName: "Sasha", LastName: "Neupokoev"}, {ID: "u2", Username: "alice", FirstName: "Alice", LastName: "Smith"}})
+			_ = json.NewEncoder(w).Encode([]mmUser{{ID: "u1", Username: "sasha", FirstName: "Sasha", LastName: "Neupokoev"}, {ID: "u2", Username: "alice", FirstName: "Alice", LastName: "Smith", Email: "alice@example.com", Position: "Engineer", Locale: "ru", Props: map[string]string{"department": "Core"}}})
 		case "d2":
 			_ = json.NewEncoder(w).Encode([]mmUser{{ID: "u1", Username: "sasha", FirstName: "Sasha", LastName: "Neupokoev"}, {ID: "u3", Username: "bob", FirstName: "Bob", LastName: "Brown"}})
 		default:
@@ -121,6 +121,9 @@ func TestClientConnectLoadAndSend(t *testing.T) {
 	}
 	if len(channels) != 3 || channels[0].ID != "d1" || channels[0].DisplayName != "Alice Smith" || channels[0].Unread != 1 || channels[0].LastPostAt != 200 || channels[0].Status != "online" || channels[0].MemberCount != 1 || channels[1].ID != "d2" || channels[1].Status != "offline" || channels[2].ID != "c1" || channels[2].Unread != 3 || channels[2].Mentions != 2 || channels[2].LastViewedAt != 2 || channels[2].Header != "Town topic" || channels[2].MemberCount != 42 {
 		t.Fatalf("bad channels: %#v", channels)
+	}
+	if len(channels[0].Users) != 1 || channels[0].Users[0].Email != "alice@example.com" || channels[0].Users[0].Position != "Engineer" || channels[0].Users[0].Status != "online" || channels[0].Users[0].Props["department"] != "Core" {
+		t.Fatalf("bad direct user details: %#v", channels[0].Users)
 	}
 	posts, err := client.LoadPosts(context.Background(), "c1", 2)
 	if err != nil {

@@ -76,16 +76,8 @@ func (c *Client) Connect(ctx context.Context) (*domain.Session, error) {
 
 	out := &domain.Session{
 		ServerURL: c.baseURL,
-		User: domain.User{
-			ID:          user.ID,
-			Username:    user.Username,
-			Nickname:    user.Nickname,
-			FirstName:   user.FirstName,
-			LastName:    user.LastName,
-			DisplayName: user.displayName(),
-			Email:       user.Email,
-		},
-		Teams: make([]domain.Team, 0, len(teams)),
+		User:      user.toDomain(),
+		Teams:     make([]domain.Team, 0, len(teams)),
 	}
 	for _, t := range teams {
 		out.Teams = append(out.Teams, domain.Team{ID: t.ID, Name: t.Name, DisplayName: t.DisplayName})
@@ -133,6 +125,7 @@ func (c *Client) LoadChannels(ctx context.Context, teamID string) ([]domain.Chan
 	for _, ch := range channels {
 		name := ch.DisplayName
 		var channelUserIDs []string
+		var channelUsers []domain.User
 		memberCount := ch.MemberCount
 		if ch.Type == "D" || ch.Type == "G" {
 			info := c.directChannelInfo(ctx, ch.ID, userID)
@@ -140,6 +133,7 @@ func (c *Client) LoadChannels(ctx context.Context, teamID string) ([]domain.Chan
 				name = info.DisplayName
 			}
 			channelUserIDs = info.UserIDs
+			channelUsers = info.Users
 			memberCount = len(info.UserIDs)
 			statusUserIDs = append(statusUserIDs, info.UserIDs...)
 		}
@@ -165,6 +159,7 @@ func (c *Client) LoadChannels(ctx context.Context, teamID string) ([]domain.Chan
 			Purpose:      ch.Purpose,
 			MemberCount:  memberCount,
 			UserIDs:      channelUserIDs,
+			Users:        channelUsers,
 		})
 		c.mu.Lock()
 		if c.lastViewedAt == nil {
@@ -176,6 +171,9 @@ func (c *Client) LoadChannels(ctx context.Context, teamID string) ([]domain.Chan
 	statuses := c.loadUserStatuses(ctx, statusUserIDs)
 	for i := range out {
 		out[i].Status = combinedStatus(out[i].UserIDs, statuses)
+		for j := range out[i].Users {
+			out[i].Users[j].Status = statuses[out[i].Users[j].ID]
+		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Type == "D" && out[j].Type == "D" {
@@ -486,6 +484,7 @@ func (c *Client) loadChannelMembers(ctx context.Context, userID, teamID string) 
 type directChannelInfo struct {
 	DisplayName string
 	UserIDs     []string
+	Users       []domain.User
 }
 
 func (c *Client) directChannelInfo(ctx context.Context, channelID, currentUserID string) directChannelInfo {
@@ -497,16 +496,18 @@ func (c *Client) directChannelInfo(ctx context.Context, channelID, currentUserID
 	c.cacheUsers(users)
 	names := make([]string, 0, len(users))
 	ids := make([]string, 0, len(users))
+	domainUsers := make([]domain.User, 0, len(users))
 	for _, user := range users {
 		if user.ID == "" || user.ID == currentUserID {
 			continue
 		}
 		ids = append(ids, user.ID)
+		domainUsers = append(domainUsers, user.toDomain())
 		if name := user.displayName(); name != "" {
 			names = append(names, name)
 		}
 	}
-	return directChannelInfo{DisplayName: strings.Join(names, ", "), UserIDs: ids}
+	return directChannelInfo{DisplayName: strings.Join(names, ", "), UserIDs: ids, Users: domainUsers}
 }
 
 func (c *Client) loadCustomEmojis(ctx context.Context) []domain.Emoji {
@@ -755,12 +756,61 @@ func (c *Client) do(ctx context.Context, method, path string, in any, out any) e
 }
 
 type mmUser struct {
-	ID        string `json:"id"`
-	Username  string `json:"username"`
-	Nickname  string `json:"nickname"`
-	FirstName string `json:"first_name"`
-	LastName  string `json:"last_name"`
-	Email     string `json:"email"`
+	ID                 string            `json:"id"`
+	Username           string            `json:"username"`
+	Nickname           string            `json:"nickname"`
+	FirstName          string            `json:"first_name"`
+	LastName           string            `json:"last_name"`
+	Email              string            `json:"email"`
+	Position           string            `json:"position"`
+	Roles              string            `json:"roles"`
+	Locale             string            `json:"locale"`
+	Timezone           map[string]string `json:"timezone"`
+	Props              map[string]string `json:"props"`
+	AuthService        string            `json:"auth_service"`
+	CreateAt           int64             `json:"create_at"`
+	UpdateAt           int64             `json:"update_at"`
+	LastActivityAt     int64             `json:"last_activity_at"`
+	LastPictureUpdate  int64             `json:"last_picture_update"`
+	LastPasswordUpdate int64             `json:"last_password_update"`
+	MFAActive          bool              `json:"mfa_active"`
+	BotDescription     string            `json:"bot_description"`
+}
+
+func (u mmUser) toDomain() domain.User {
+	return domain.User{
+		ID:                 u.ID,
+		Username:           u.Username,
+		Nickname:           u.Nickname,
+		FirstName:          u.FirstName,
+		LastName:           u.LastName,
+		DisplayName:        u.displayName(),
+		Email:              u.Email,
+		Position:           u.Position,
+		Roles:              u.Roles,
+		Locale:             u.Locale,
+		Timezone:           cloneStringMap(u.Timezone),
+		Props:              cloneStringMap(u.Props),
+		AuthService:        u.AuthService,
+		CreateAt:           u.CreateAt,
+		UpdateAt:           u.UpdateAt,
+		LastActivityAt:     u.LastActivityAt,
+		LastPictureUpdate:  u.LastPictureUpdate,
+		LastPasswordUpdate: u.LastPasswordUpdate,
+		MFAActive:          u.MFAActive,
+		BotDescription:     u.BotDescription,
+	}
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func (u mmUser) displayName() string {
