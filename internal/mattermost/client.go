@@ -708,14 +708,33 @@ func (c *Client) directChannelInfo(ctx context.Context, channelID, currentUserID
 	names := make([]string, 0, len(users))
 	ids := make([]string, 0, len(users))
 	domainUsers := make([]domain.User, 0, len(users))
+	var self mmUser
 	for _, user := range users {
-		if user.ID == "" || user.ID == currentUserID {
+		if user.ID == "" {
+			continue
+		}
+		if user.ID == currentUserID {
+			self = user
 			continue
 		}
 		ids = append(ids, user.ID)
 		domainUsers = append(domainUsers, user.toDomain())
 		if name := user.displayName(); name != "" {
 			names = append(names, name)
+		}
+	}
+	// Mattermost self-DM channels are useful as "saved messages"/notes. They only
+	// contain the current user, so excluding self would leave us with an empty
+	// display name and the UI would fall back to the raw channel/user-id slug.
+	if len(ids) == 0 && self.ID != "" {
+		ids = append(ids, self.ID)
+		domainUsers = append(domainUsers, self.toDomain())
+		name := self.displayName()
+		if name == "" {
+			name = self.Username
+		}
+		if name != "" {
+			names = append(names, name+" (you)")
 		}
 	}
 	return directChannelInfo{DisplayName: strings.Join(names, ", "), UserIDs: ids, Users: domainUsers}

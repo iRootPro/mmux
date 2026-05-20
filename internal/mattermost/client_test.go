@@ -416,3 +416,24 @@ func TestLoadPostsMarksOwnDMMessagesReadWhenPeerViewedChannel(t *testing.T) {
 		t.Fatalf("incoming message should not show own delivery: %#v", posts[2])
 	}
 }
+
+func TestDirectChannelInfoLabelsSelfDMInsteadOfRawID(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v4/users", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("in_channel") != "self" {
+			t.Fatalf("unexpected users query: %s", r.URL.RawQuery)
+		}
+		_ = json.NewEncoder(w).Encode([]mmUser{{ID: "u1", Username: "sasha", FirstName: "Sasha", LastName: "Self"}})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := New(config.Config{ServerURL: server.URL, Token: "token"})
+	info := client.directChannelInfo(context.Background(), "self", "u1")
+	if info.DisplayName != "Sasha Self (you)" {
+		t.Fatalf("self DM display name = %q", info.DisplayName)
+	}
+	if len(info.UserIDs) != 1 || info.UserIDs[0] != "u1" || len(info.Users) != 1 || info.Users[0].Username != "sasha" {
+		t.Fatalf("self DM user details missing: %#v", info)
+	}
+}
