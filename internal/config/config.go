@@ -64,7 +64,7 @@ func Parse(args []string) (Options, error) {
 		return Options{}, err
 	}
 	merged := merge(fileCfg, envConfig(), cfg)
-	merged.ServerURL = strings.TrimRight(merged.ServerURL, "/")
+	merged.ServerURL = NormalizeServerURL(merged.ServerURL)
 	merged.Config = cfg.Config
 	merged.Mock = cfg.Mock || truthyEnv("MMUX_MOCK") || truthyEnv("BAND_MOCK")
 
@@ -101,6 +101,18 @@ func SaveFile(path string, cfg Config) error {
 	}
 	b = append(b, '\n')
 	return os.WriteFile(path, b, 0o600)
+}
+
+func NormalizeServerURL(serverURL string) string {
+	serverURL = strings.TrimRight(strings.TrimSpace(serverURL), "/")
+	if serverURL == "" {
+		return ""
+	}
+	lower := strings.ToLower(serverURL)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		return serverURL
+	}
+	return "https://" + serverURL
 }
 
 func HasCredentials(cfg Config) bool {

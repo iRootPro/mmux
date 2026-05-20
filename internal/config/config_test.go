@@ -73,3 +73,12 @@ func TestParseDoesNotDefaultServerURL(t *testing.T) {
 		t.Fatalf("server should not default, got %q", opts.Config.ServerURL)
 	}
 }
+
+func TestNormalizeServerURLAddsHTTPS(t *testing.T) {
+	if got := NormalizeServerURL("mattermost.example.com/"); got != "https://mattermost.example.com" {
+		t.Fatalf("normalized = %q", got)
+	}
+	if got := NormalizeServerURL("http://localhost:8065/"); got != "http://localhost:8065" {
+		t.Fatalf("normalized localhost = %q", got)
+	}
+}

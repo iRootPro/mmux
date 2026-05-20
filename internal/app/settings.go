@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"band-tui/internal/config"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -165,7 +167,7 @@ func dropLastRune(s string) string {
 }
 
 func (m Model) saveConnectionSettings() (tea.Model, tea.Cmd) {
-	serverURL := strings.TrimRight(strings.TrimSpace(m.settingsDraftServer), "/")
+	serverURL := config.NormalizeServerURL(m.settingsDraftServer)
 	token := strings.TrimSpace(m.settingsDraftToken)
 	if serverURL == "" {
 		m.status = "server URL is required"

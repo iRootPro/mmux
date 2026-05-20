@@ -83,7 +83,7 @@ func TestSettingsCanSaveConnection(t *testing.T) {
 	m = updated.(Model)
 	updated, _ = m.handleSettingsKey(tea.KeyMsg{Type: tea.KeyCtrlU})
 	m = updated.(Model)
-	for _, r := range []rune("https://chat.example.com/") {
+	for _, r := range []rune("chat.example.com/") {
 		updated, _ = m.handleSettingsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		m = updated.(Model)
 	}
