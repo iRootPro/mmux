@@ -2421,33 +2421,45 @@ func (m *Model) replacePendingPost(tempPostID string, post domain.Post) bool {
 	post = m.normalizePost(post)
 	post.Delivery = domain.DeliverySent
 	changed := false
-	for i := range m.posts {
-		if m.posts[i].ID == tempPostID {
-			m.posts[i] = post
-			changed = true
-			break
-		}
-	}
+	m.posts, changed = reconcilePendingPost(m.posts, tempPostID, post)
 	if m.postsByChannel != nil {
 		for channelID, posts := range m.postsByChannel {
-			for i := range posts {
-				if posts[i].ID == tempPostID {
-					posts[i] = post
-					m.postsByChannel[channelID] = posts
-					changed = true
-					break
-				}
+			var didChange bool
+			posts, didChange = reconcilePendingPost(posts, tempPostID, post)
+			if didChange {
+				m.postsByChannel[channelID] = posts
+				changed = true
 			}
 		}
 	}
-	for i := range m.threadPosts {
-		if m.threadPosts[i].ID == tempPostID {
-			m.threadPosts[i] = post
-			changed = true
-			break
+	var threadChanged bool
+	m.threadPosts, threadChanged = reconcilePendingPost(m.threadPosts, tempPostID, post)
+	return changed || threadChanged
+}
+
+func reconcilePendingPost(posts []domain.Post, tempPostID string, post domain.Post) ([]domain.Post, bool) {
+	tempIdx := -1
+	realIdx := -1
+	for i := range posts {
+		if posts[i].ID == tempPostID {
+			tempIdx = i
+		}
+		if post.ID != "" && posts[i].ID == post.ID {
+			realIdx = i
 		}
 	}
-	return changed
+	if realIdx >= 0 {
+		posts[realIdx] = mergeEditedPost(posts[realIdx], post)
+		if tempIdx >= 0 && tempIdx != realIdx {
+			posts = append(posts[:tempIdx], posts[tempIdx+1:]...)
+		}
+		return posts, true
+	}
+	if tempIdx >= 0 {
+		posts[tempIdx] = post
+		return posts, true
+	}
+	return posts, false
 }
 
 func (m *Model) markPendingPostFailed(tempPostID string) {

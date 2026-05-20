@@ -93,3 +93,40 @@ func TestDeliveryReadRendersDoubleCheck(t *testing.T) {
 		t.Fatalf("read delivery badge missing:\n%s", got)
 	}
 }
+
+func TestReplySentAfterWebsocketEchoDoesNotDuplicatePendingReply(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.session = &domain.Session{User: domain.User{ID: "me", Username: "me"}}
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.threadOpen = true
+	m.threadRootID = "root"
+	m.threadFocusComposer = true
+	m.focus = focusComposer
+	m.threadPosts = []domain.Post{{ID: "root", ChannelID: "dev", Message: "root"}}
+	m.postsByChannel = map[string][]domain.Post{"dev": {{ID: "root", ChannelID: "dev", Message: "root"}}}
+	m.loadDraft(threadDraftKey("dev", "root"))
+	m.composer.SetValue("reply")
+
+	updated, _ := m.handleThreadKey(draftKey("enter"))
+	got := updated.(Model)
+	pendingID := pendingID(got.pendingSends)
+	realPost := domain.Post{ID: "r1", ChannelID: "dev", RootID: "root", UserID: "me", Message: "reply"}
+	updated, _ = got.Update(backendEventMsg{event: domain.Event{Kind: domain.EventPost, Post: realPost}})
+	got = updated.(Model)
+	updated, _ = got.Update(replySentMsg{channelID: "dev", rootID: "root", draftKey: threadDraftKey("dev", "root"), pendingID: pendingID, text: "reply", post: realPost})
+	got = updated.(Model)
+
+	count := 0
+	for _, post := range got.threadPosts {
+		if post.ID == "r1" {
+			count++
+		}
+		if strings.HasPrefix(post.ID, "pending:") {
+			t.Fatalf("pending reply left after ack: %#v", got.threadPosts)
+		}
+	}
+	if count != 1 {
+		t.Fatalf("reply duplicated after websocket echo + ack: %#v", got.threadPosts)
+	}
+}
