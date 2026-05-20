@@ -14,20 +14,25 @@ import (
 )
 
 var (
-	colorText    = lipgloss.AdaptiveColor{Light: "235", Dark: "255"}
-	colorMuted   = lipgloss.AdaptiveColor{Light: "243", Dark: "246"}
-	colorSubtle  = lipgloss.AdaptiveColor{Light: "250", Dark: "241"}
-	colorAccent  = lipgloss.AdaptiveColor{Light: "62", Dark: "147"}
-	colorError   = lipgloss.AdaptiveColor{Light: "160", Dark: "203"}
-	colorSuccess = lipgloss.AdaptiveColor{Light: "35", Dark: "114"}
+	colorText        = lipgloss.AdaptiveColor{Light: "235", Dark: "255"}
+	colorMuted       = lipgloss.AdaptiveColor{Light: "243", Dark: "246"}
+	colorSubtle      = lipgloss.AdaptiveColor{Light: "250", Dark: "241"}
+	colorAccent      = lipgloss.AdaptiveColor{Light: "62", Dark: "147"}
+	colorThread      = lipgloss.AdaptiveColor{Light: "99", Dark: "111"}
+	colorThreadBg    = lipgloss.AdaptiveColor{Light: "255", Dark: "235"}
+	colorThreadBadge = lipgloss.AdaptiveColor{Light: "255", Dark: "234"}
+	colorError       = lipgloss.AdaptiveColor{Light: "160", Dark: "203"}
+	colorSuccess     = lipgloss.AdaptiveColor{Light: "35", Dark: "114"}
 
-	baseStyle        = lipgloss.NewStyle().Foreground(colorText)
-	muted            = lipgloss.NewStyle().Foreground(colorMuted)
-	subtle           = lipgloss.NewStyle().Foreground(colorSubtle)
-	accent           = lipgloss.NewStyle().Foreground(colorAccent)
-	errorText        = lipgloss.NewStyle().Foreground(colorError)
-	pillStyle        = lipgloss.NewStyle().Foreground(colorText).Background(lipgloss.AdaptiveColor{Light: "254", Dark: "236"}).Padding(0, 1)
-	selectedMsgStyle = lipgloss.NewStyle().Foreground(colorText)
+	baseStyle             = lipgloss.NewStyle().Foreground(colorText)
+	muted                 = lipgloss.NewStyle().Foreground(colorMuted)
+	subtle                = lipgloss.NewStyle().Foreground(colorSubtle)
+	accent                = lipgloss.NewStyle().Foreground(colorAccent)
+	errorText             = lipgloss.NewStyle().Foreground(colorError)
+	pillStyle             = lipgloss.NewStyle().Foreground(colorText).Background(lipgloss.AdaptiveColor{Light: "254", Dark: "236"}).Padding(0, 1)
+	selectedMsgStyle      = lipgloss.NewStyle().Foreground(colorText)
+	threadUnreadMsgStyle  = lipgloss.NewStyle().Foreground(colorText).Background(colorThreadBg)
+	threadUnreadChipStyle = lipgloss.NewStyle().Foreground(colorText).Background(colorThreadBadge).Padding(0, 1)
 
 	sidebarStyle = lipgloss.NewStyle().Border(lipgloss.NormalBorder(), false, true, false, false).BorderForeground(colorSubtle).Padding(0, 1)
 	mainStyle    = lipgloss.NewStyle().PaddingLeft(1)
@@ -39,6 +44,7 @@ var (
 	statusChipBase     = lipgloss.NewStyle().Foreground(colorText).Background(lipgloss.AdaptiveColor{Light: "255", Dark: "236"}).Padding(0, 1)
 	statusKeyChip      = lipgloss.NewStyle().Foreground(colorAccent).Background(lipgloss.AdaptiveColor{Light: "254", Dark: "235"}).Padding(0, 1)
 	sidebarBadgeStyle  = lipgloss.NewStyle().Foreground(colorText).Background(lipgloss.AdaptiveColor{Light: "254", Dark: "236"}).Padding(0, 1)
+	sidebarThreadPill  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "255", Dark: "230"}).Background(colorThread).Padding(0, 1)
 	sidebarMentionPill = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "255", Dark: "230"}).Background(colorAccent).Padding(0, 1)
 )
 
@@ -949,22 +955,31 @@ func (m Model) renderThreadPostsWithOffsets(width int) (string, []int) {
 	replyCount := threadRenderedCount(m.threadPosts, m.threadRootID)
 	var prevRendered domain.Post
 	hasPrevRendered := false
+	newRepliesSeparatorWritten := false
 	for idx, post := range m.threadPosts {
+		if !newRepliesSeparatorWritten && post.ID != m.threadRootID && (post.Unread || post.Mentioned || post.ThreadUnread) {
+			if repliesWritten > 0 {
+				writeBlank()
+			}
+			writeLine(accent.Render("──── " + m.tr("new replies") + " " + strings.Repeat("─", max(0, width-18))))
+			writeBlank()
+			newRepliesSeparatorWritten = true
+		}
 		offsets[idx] = lineNo
 		grouped := hasPrevRendered && shouldGroupTimelinePost(prevRendered, post)
 		selected := idx == m.threadSelected && !m.threadFocusComposer
 		if !grouped {
-			writeLine(m.renderPostLine(m.renderThreadPostHeader(post, grouped, selected), selected))
+			writeLine(m.renderPostLine(m.renderThreadPostHeader(post, grouped, selected), selected, post))
 		}
 		body := renderMarkdownMessage(post.Message, max(20, width-6))
 		for _, line := range renderMessageBodyLines(post, body, grouped, selected) {
-			writeLine(m.renderPostLine(line, selected))
+			writeLine(m.renderPostLine(line, selected, post))
 		}
 		for _, line := range m.renderAttachmentLines(post, max(20, width-6), grouped && body == "", selected) {
-			writeLine(m.renderPostLine(line, selected))
+			writeLine(m.renderPostLine(line, selected, post))
 		}
 		if badges := renderReactionBadges(post); badges != "" {
-			writeLine(m.renderPostLine(renderMessageBodyLine(badges, post, selected), selected))
+			writeLine(m.renderPostLine(renderMessageBodyLine(badges, post, selected), selected, post))
 		}
 		repliesWritten++
 		prevRendered = post
@@ -1327,7 +1342,7 @@ func (m Model) channelBadge(ch domain.Channel) string {
 		return sidebarMentionPill.Render(fmt.Sprintf("@%d", ch.Mentions))
 	}
 	if count := m.unresolvedThreadSignalCount(ch.ID); count > 0 {
-		return sidebarBadgeStyle.Render(fmt.Sprintf("↳%d", count))
+		return sidebarThreadPill.Render(fmt.Sprintf("↳%d", count))
 	}
 	if ch.Unread > 0 {
 		return sidebarBadgeStyle.Render(fmt.Sprintf("%d", ch.Unread))
@@ -1724,6 +1739,14 @@ func (m Model) statusDisplayText(status string) string {
 }
 
 func (m Model) focusStatusHint() string {
+	if m.focus == focusTimeline {
+		if post, ok := m.selectedPostValue(); ok && post.ThreadUnread {
+			if m.isRussian() {
+				return "непрочитанный тред · t открыть · ctrl+u triage · n дальше"
+			}
+			return "unread thread · t open · ctrl+u triage · n next"
+		}
+	}
 	if m.isRussian() {
 		switch m.focus {
 		case focusSidebar:
@@ -1887,17 +1910,17 @@ func (m Model) renderPosts() (string, []int) {
 		offsets[i] = lineNo
 		selected := i == m.selectedPost && m.focus == focusTimeline
 		if !grouped {
-			writeLine(m.renderPostLine(m.renderTimelinePostHeader(p, grouped, selected), selected))
+			writeLine(m.renderPostLine(m.renderTimelinePostHeader(p, grouped, selected), selected, p))
 		}
 		body := renderMarkdownMessage(p.Message, max(20, m.viewport.Width-8))
 		for _, line := range renderMessageBodyLines(p, body, grouped, selected) {
-			writeLine(m.renderPostLine(line, selected))
+			writeLine(m.renderPostLine(line, selected, p))
 		}
 		for _, line := range m.renderAttachmentLines(p, max(20, m.viewport.Width-8), grouped && body == "", selected) {
-			writeLine(m.renderPostLine(line, selected))
+			writeLine(m.renderPostLine(line, selected, p))
 		}
 		if badges := renderReactionBadges(p); badges != "" {
-			writeLine(m.renderPostLine(renderMessageBodyLine(badges, p, selected), selected))
+			writeLine(m.renderPostLine(renderMessageBodyLine(badges, p, selected), selected, p))
 		}
 		if i < len(renderPosts)-1 && !shouldGroupTimelinePost(p, renderPosts[i+1]) {
 			writeBlank()
@@ -1937,9 +1960,17 @@ func (m Model) renderThreadPostHeader(post domain.Post, grouped bool, selected b
 	}
 	header := renderMessageGutter(post, selected, true) + accent.Render(user) + muted.Render("  "+formatTime(post.CreateAt))
 	if post.ThreadUnread {
-		header += accent.Render("  ● new replies")
+		header += "  " + unreadThreadChip(0)
 	}
 	return header
+}
+
+func unreadThreadChip(count int) string {
+	label := "↳ new"
+	if count > 0 {
+		label = fmt.Sprintf("↳%d new", count)
+	}
+	return threadUnreadChipStyle.Render(label)
 }
 
 func (m Model) renderTimelinePostHeader(post domain.Post, grouped bool, selected bool) string {
@@ -1953,9 +1984,9 @@ func (m Model) renderTimelinePostHeader(post domain.Post, grouped bool, selected
 	header := renderMessageGutter(post, selected, true) + accent.Render(user) + muted.Render("  "+formatTime(post.CreateAt))
 	if post.ReplyCount > 0 {
 		header += accent.Render(m.replyCountLabel(post.ReplyCount))
-		if post.ThreadUnread {
-			header += accent.Render("  ● new replies")
-		}
+	}
+	if post.ThreadUnread {
+		header += "  " + unreadThreadChip(post.ReplyCount)
 	}
 	return header
 }
@@ -2081,12 +2112,16 @@ func firstImportantPostIndex(posts []domain.Post) int {
 	return -1
 }
 
-func (m Model) renderPostLine(line string, selected bool) string {
-	if !selected {
-		return "  " + line
+func (m Model) renderPostLine(line string, selected bool, post domain.Post) string {
+	if selected {
+		// Selection is shown by the block gutter itself (┃) to avoid competing left markers.
+		return selectedMsgStyle.Render(line)
 	}
-	// Selection is shown by the block gutter itself (┃) to avoid competing left markers.
-	return selectedMsgStyle.Render(line)
+	line = "  " + line
+	if post.ThreadUnread {
+		return threadUnreadMsgStyle.Render(line)
+	}
+	return line
 }
 
 func (m Model) helpText() string {

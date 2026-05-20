@@ -299,6 +299,18 @@ func (m Model) selectedPostIndex() (int, bool) {
 	return m.selectedPost, true
 }
 
+func (m Model) selectedPostValue() (domain.Post, bool) {
+	idx, ok := m.selectedPostIndex()
+	if !ok {
+		return domain.Post{}, false
+	}
+	post := m.posts[idx]
+	if m.hasThreadSignal(post.ChannelID, post.ID) {
+		post.ThreadUnread = true
+	}
+	return post, true
+}
+
 func (m Model) openSelectedPostLink() (tea.Model, tea.Cmd) {
 	idx, ok := m.selectedPostIndex()
 	if !ok {
