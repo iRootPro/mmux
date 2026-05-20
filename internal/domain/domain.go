@@ -68,6 +68,15 @@ type PostReaction struct {
 	Reacted bool
 }
 
+type DeliveryState string
+
+const (
+	DeliveryNone    DeliveryState = ""
+	DeliveryPending DeliveryState = "pending"
+	DeliverySent    DeliveryState = "sent"
+	DeliveryFailed  DeliveryState = "failed"
+)
+
 // PostFile is a file/image attached to a chat post.
 type PostFile struct {
 	ID        string
@@ -107,6 +116,7 @@ type Post struct {
 	CreateAt     int64
 	UpdateAt     int64
 	ReplyCount   int
+	Delivery     DeliveryState
 	Reactions    []PostReaction
 	Files        []PostFile
 }

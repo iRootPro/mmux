@@ -1962,6 +1962,7 @@ func (m Model) renderThreadPostHeader(post domain.Post, grouped bool, selected b
 	if post.ThreadUnread {
 		header += "  " + unreadThreadChip(0)
 	}
+	header += deliveryBadge(post)
 	return header
 }
 
@@ -1988,7 +1989,21 @@ func (m Model) renderTimelinePostHeader(post domain.Post, grouped bool, selected
 	if post.ThreadUnread {
 		header += "  " + unreadThreadChip(post.ReplyCount)
 	}
+	header += deliveryBadge(post)
 	return header
+}
+
+func deliveryBadge(post domain.Post) string {
+	switch post.Delivery {
+	case domain.DeliveryPending:
+		return muted.Render("  … sending")
+	case domain.DeliverySent:
+		return muted.Render("  ✓")
+	case domain.DeliveryFailed:
+		return errorText.Render("  failed")
+	default:
+		return ""
+	}
 }
 
 func renderMessageGutter(post domain.Post, selected bool, includeImportantDot bool) string {

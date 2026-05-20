@@ -159,6 +159,8 @@ var ruStrings = map[string]string{
 	"request failed":                                 "запрос не удался",
 	"sending…":                                       "отправляю…",
 	"sending reply…":                                 "отправляю ответ…",
+	"delivered":                                      "доставлено",
+	"reply delivered":                                "ответ доставлен",
 	"sent":                                           "отправлено",
 	"reply sent":                                     "ответ отправлен",
 	"send failed · draft restored":                   "отправка не удалась · черновик восстановлен",

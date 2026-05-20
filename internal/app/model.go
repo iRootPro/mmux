@@ -403,50 +403,66 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case replySentMsg:
 		if msg.err != nil {
 			m.err = msg.err.Error()
-			m.restorePendingSend(msg.pendingID, msg.draftKey, msg.text)
+			pending, ok := m.restorePendingSend(msg.pendingID, msg.draftKey, msg.text)
+			if ok {
+				m.markPendingPostFailed(pending.tempPostID)
+			}
 			m.status = "reply failed · draft restored"
+			m.syncThreadViewportSelection()
 			return m, nil
 		}
-		m.completePendingSend(msg.pendingID, msg.draftKey)
+		pending, hadPending := m.completePendingSend(msg.pendingID, msg.draftKey)
 		if msg.post.ID == "" {
 			return m, nil
 		}
+		msg.post.Delivery = domain.DeliverySent
 		if msg.rootID != m.threadRootID {
 			return m, nil
 		}
 		m.err = ""
-		if m.addThreadPost(msg.post) {
+		if hadPending && m.replacePendingPost(pending.tempPostID, msg.post) {
+			m.addPostToCache(msg.channelID, msg.post)
+			m.bumpReplyCount(msg.rootID)
+		} else if m.addThreadPost(msg.post) {
 			m.addPostToCache(msg.channelID, msg.post)
 			m.bumpReplyCount(msg.rootID)
 		}
 		m.refreshViewport()
 		m.rebuildTriageItems()
 		m.syncThreadViewportSelection()
-		m.status = "reply sent"
+		m.status = "reply delivered"
 		return m, nil
 
 	case postSentMsg:
 		m.loading = false
 		if msg.err != nil {
 			m.err = msg.err.Error()
-			m.restorePendingSend(msg.pendingID, msg.draftKey, msg.text)
+			pending, ok := m.restorePendingSend(msg.pendingID, msg.draftKey, msg.text)
+			if ok {
+				m.markPendingPostFailed(pending.tempPostID)
+			}
 			m.status = "send failed · draft restored"
+			m.refreshViewport()
 			return m, nil
 		}
-		m.completePendingSend(msg.pendingID, msg.draftKey)
+		pending, hadPending := m.completePendingSend(msg.pendingID, msg.draftKey)
 		if msg.post.ID == "" {
 			return m, nil
 		}
+		msg.post.Delivery = domain.DeliverySent
 		if msg.channelID != m.currentChannelID() {
 			return m, nil
 		}
 		m.err = ""
-		m.addPost(msg.post)
-		m.status = "sent"
+		if !(hadPending && m.replacePendingPost(pending.tempPostID, msg.post)) {
+			m.addPost(msg.post)
+		}
+		m.status = "delivered"
 		m.rebuildTriageItems()
 		m.refreshViewport()
 		m.viewport.GotoBottom()
 		return m, nil
+
 	case postUpdatedMsg:
 		if msg.err != nil {
 			m.err = msg.err.Error()
@@ -1039,10 +1055,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, updatePostCmd(m.ctx, m.backend, m.editingPostID, text)
 			}
 			key := m.currentDraftKey()
+			channelID := m.currentChannelID()
 			pendingID := m.beginPendingSend(key, text)
+			pendingPost := m.attachPendingPost(pendingID, channelID, "")
+			m.addPost(pendingPost)
 			m.status = "sending…"
 			m.loading = true
-			return m, sendPostCmd(m.ctx, m.backend, m.currentChannelID(), key, pendingID, text)
+			m.refreshViewport()
+			m.viewport.GotoBottom()
+			return m, sendPostCmd(m.ctx, m.backend, channelID, key, pendingID, text)
 		case "alt+enter":
 			m.composer.InsertString("\n")
 			return m, nil
@@ -1464,9 +1485,14 @@ func (m Model) handleThreadKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		key := m.currentDraftKey()
+		channelID := m.currentChannelID()
 		pendingID := m.beginPendingSend(key, text)
+		pendingPost := m.attachPendingPost(pendingID, channelID, m.threadRootID)
+		m.addThreadPost(pendingPost)
+		m.addPostToCache(channelID, pendingPost)
 		m.status = "sending reply…"
-		return m, sendReplyCmd(m.ctx, m.backend, m.currentChannelID(), m.threadRootID, key, pendingID, text)
+		m.syncThreadViewportSelection()
+		return m, sendReplyCmd(m.ctx, m.backend, channelID, m.threadRootID, key, pendingID, text)
 	case "alt+enter":
 		m.composer.InsertString("\n")
 		return m, nil
@@ -2388,6 +2414,68 @@ func (m *Model) addPost(post domain.Post) {
 	m.addPostToCache(post.ChannelID, post)
 }
 
+func (m *Model) replacePendingPost(tempPostID string, post domain.Post) bool {
+	if tempPostID == "" {
+		return false
+	}
+	post = m.normalizePost(post)
+	post.Delivery = domain.DeliverySent
+	changed := false
+	for i := range m.posts {
+		if m.posts[i].ID == tempPostID {
+			m.posts[i] = post
+			changed = true
+			break
+		}
+	}
+	if m.postsByChannel != nil {
+		for channelID, posts := range m.postsByChannel {
+			for i := range posts {
+				if posts[i].ID == tempPostID {
+					posts[i] = post
+					m.postsByChannel[channelID] = posts
+					changed = true
+					break
+				}
+			}
+		}
+	}
+	for i := range m.threadPosts {
+		if m.threadPosts[i].ID == tempPostID {
+			m.threadPosts[i] = post
+			changed = true
+			break
+		}
+	}
+	return changed
+}
+
+func (m *Model) markPendingPostFailed(tempPostID string) {
+	if tempPostID == "" {
+		return
+	}
+	for i := range m.posts {
+		if m.posts[i].ID == tempPostID {
+			m.posts[i].Delivery = domain.DeliveryFailed
+		}
+	}
+	if m.postsByChannel != nil {
+		for channelID, posts := range m.postsByChannel {
+			for i := range posts {
+				if posts[i].ID == tempPostID {
+					posts[i].Delivery = domain.DeliveryFailed
+				}
+			}
+			m.postsByChannel[channelID] = posts
+		}
+	}
+	for i := range m.threadPosts {
+		if m.threadPosts[i].ID == tempPostID {
+			m.threadPosts[i].Delivery = domain.DeliveryFailed
+		}
+	}
+}
+
 func mergeEditedPost(existing, updated domain.Post) domain.Post {
 	merged := existing
 	if updated.ChannelID != "" {
@@ -2408,6 +2496,9 @@ func mergeEditedPost(existing, updated domain.Post) domain.Post {
 	}
 	if updated.UpdateAt != 0 {
 		merged.UpdateAt = updated.UpdateAt
+	}
+	if updated.Delivery != domain.DeliveryNone {
+		merged.Delivery = updated.Delivery
 	}
 	return merged
 }
