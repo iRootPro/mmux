@@ -142,7 +142,7 @@ Environment variables override config file values; CLI flags override both.
 Supported env vars:
 
 - `MMUX_URL`
-- `MMUX_TOKEN`
+- `MMUX_TOKEN` — Mattermost Personal Access Token or `MMAUTHTOKEN` session cookie value
 - `MMUX_USERNAME`
 - `MMUX_PASSWORD`
 - `MMUX_TEAM`
@@ -156,8 +156,9 @@ The API is standard Mattermost `/api/v4`.
 
 Recommended CLI flow:
 
-- use a Mattermost personal/session token via `MMUX_TOKEN`; or
-- run `mmux auth` to save the browser `MMAUTHTOKEN` session token.
+- use a Mattermost Personal Access Token via `MMUX_TOKEN`; or
+- use the browser `MMAUTHTOKEN` session cookie value as `MMUX_TOKEN`; or
+- run `mmux auth` to save `MMAUTHTOKEN` interactively.
 
 ## Keys
 

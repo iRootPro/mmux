@@ -116,7 +116,7 @@ func (m Model) renderSettings(width, height int) string {
 	rows := []string{
 		m.settingsRow(settingsItemLanguage, "🌍 "+m.tr("Language"), m.languageDisplayName(), boxWidth-4),
 		m.settingsRow(settingsItemServer, "🌐 "+m.tr("Server URL"), settingsDisplayValue(m.settingsDraftServer, m.tr("not set")), boxWidth-4),
-		m.settingsRow(settingsItemToken, "🔑 "+m.tr("Token"), maskedToken(m.settingsDraftToken, m.tr("not set")), boxWidth-4),
+		m.settingsRow(settingsItemToken, "🔑 "+m.tr("Access token"), maskedToken(m.settingsDraftToken, m.tr("not set")), boxWidth-4),
 		m.settingsRow(settingsItemSave, "💾 "+m.tr("Save connection"), m.tr("save to config"), boxWidth-4),
 	}
 	for _, row := range rows {
@@ -142,9 +142,10 @@ func (m Model) settingsHelpLines(width int) []string {
 		lines = append(lines, accent.Render(truncate(m.tr("Enter server URL and token, save, then restart."), width)))
 	}
 	lines = append(lines,
-		muted.Render(truncate(m.tr("How to get a token:"), width)),
-		muted.Render(truncate("1. "+m.tr("Mattermost profile → Security → Personal Access Tokens."), width)),
-		muted.Render(truncate("2. "+m.tr("Or run mmux auth and paste the browser MMAUTHTOKEN cookie."), width)),
+		muted.Render(truncate(m.tr("What is this token?"), width)),
+		muted.Render(truncate("• "+m.tr("Recommended: Mattermost Personal Access Token."), width)),
+		muted.Render(truncate("• "+m.tr("Also works: browser MMAUTHTOKEN session cookie."), width)),
+		muted.Render(truncate("• "+m.tr("Use mmux auth to save MMAUTHTOKEN interactively."), width)),
 	)
 	if !m.setupRequired {
 		lines = append(lines, muted.Render(truncate(m.tr("Connection changes are used after restart."), width)))

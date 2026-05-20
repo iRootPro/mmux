@@ -636,7 +636,7 @@ func isLocalhost(host string) bool {
 
 func (c *Client) login(ctx context.Context) error {
 	if c.username == "" || c.password == "" {
-		return fmt.Errorf("no token and no username/password; set BAND_TOKEN or BAND_USERNAME/BAND_PASSWORD")
+		return fmt.Errorf("no token and no username/password; set MMUX_TOKEN or MMUX_USERNAME/MMUX_PASSWORD")
 	}
 	body := map[string]string{"login_id": c.username, "password": c.password}
 	b, err := json.Marshal(body)
