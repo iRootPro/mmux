@@ -2169,6 +2169,7 @@ func (m Model) helpText() string {
   space или x       переключить секцию
   enter             отправить сообщение или открыть канал
   alt+enter         новая строка
+  /attach путь      прикрепить файл из ввода (можно несколько строк)
   [ или ctrl+o      загрузить старые сообщения
   y                 скопировать текст сообщения
   p                 скопировать permalink
@@ -2216,6 +2217,7 @@ func (m Model) helpText() string {
   space or x        toggle current section
   enter             send message or open selected channel
   alt+enter         insert newline in composer
+  /attach path      attach file from composer (repeat for many files)
   [ or ctrl+o       load older messages
   y                 copy selected message text
   p                 copy selected message permalink

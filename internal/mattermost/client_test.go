@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"band-tui/internal/config"
@@ -435,5 +437,54 @@ func TestDirectChannelInfoLabelsSelfDMInsteadOfRawID(t *testing.T) {
 	}
 	if len(info.UserIDs) != 1 || info.UserIDs[0] != "u1" || len(info.Users) != 1 || info.Users[0].Username != "sasha" {
 		t.Fatalf("self DM user details missing: %#v", info)
+	}
+}
+
+func TestSendPostWithFilesUploadsAndCreatesPost(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(file, []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v4/files", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("upload method = %s", r.Method)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer token" {
+			t.Fatalf("upload auth = %q", got)
+		}
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			t.Fatal(err)
+		}
+		if r.FormValue("channel_id") != "c1" {
+			t.Fatalf("upload channel = %q", r.FormValue("channel_id"))
+		}
+		files := r.MultipartForm.File["files"]
+		if len(files) != 1 || files[0].Filename != "note.txt" {
+			t.Fatalf("uploaded files = %#v", files)
+		}
+		_ = json.NewEncoder(w).Encode(mmFileUploadResponse{FileInfos: []mmFileInfo{{ID: "f1", Name: "note.txt"}}})
+	})
+	mux.HandleFunc("/api/v4/posts", func(w http.ResponseWriter, r *http.Request) {
+		var body mmCreatePostRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body.ChannelID != "c1" || body.Message != "see attached" || len(body.FileIDs) != 1 || body.FileIDs[0] != "f1" {
+			t.Fatalf("post body = %#v", body)
+		}
+		_ = json.NewEncoder(w).Encode(mmPost{ID: "p1", ChannelID: "c1", UserID: "u1", Message: body.Message, FileIDs: body.FileIDs, Metadata: &mmPostMetadata{Files: []mmFileInfo{{ID: "f1", Name: "note.txt", Size: 5}}}})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	client := New(config.Config{ServerURL: server.URL, Token: "token"})
+	client.userID = "u1"
+	post, err := client.SendPostWithFiles(context.Background(), "c1", "see attached", []string{file})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if post.ID != "p1" || len(post.Files) != 1 || post.Files[0].ID != "f1" {
+		t.Fatalf("bad post: %#v", post)
 	}
 }

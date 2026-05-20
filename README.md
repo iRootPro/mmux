@@ -10,7 +10,7 @@ Current MVP:
 - message history loading with in-memory and disk cache for faster startup/scope switching
 - compact Mattermost markdown rendering: links, inline code, code fences, quotes, headings, mentions
 - file/image attachments rendered inline with name, type, size and dimensions when available
-- sending messages
+- sending messages and file attachments (`/attach /path/to/file` in the composer)
 - websocket live updates with reconnect
 - unread and mention counters when provided by Mattermost
 - direct messages sorted by most recent activity

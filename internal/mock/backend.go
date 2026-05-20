@@ -3,6 +3,8 @@ package mock
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -124,11 +126,19 @@ func (b *Backend) LoadThread(ctx context.Context, postID string) ([]domain.Post,
 }
 
 func (b *Backend) SendPost(ctx context.Context, channelID, message string) (domain.Post, error) {
-	return b.sendPost(channelID, "", message)
+	return b.sendPost(channelID, "", message, nil)
 }
 
 func (b *Backend) SendReply(ctx context.Context, channelID, rootID, message string) (domain.Post, error) {
-	return b.sendPost(channelID, rootID, message)
+	return b.sendPost(channelID, rootID, message, nil)
+}
+
+func (b *Backend) SendPostWithFiles(ctx context.Context, channelID, message string, paths []string) (domain.Post, error) {
+	return b.sendPost(channelID, "", message, paths)
+}
+
+func (b *Backend) SendReplyWithFiles(ctx context.Context, channelID, rootID, message string, paths []string) (domain.Post, error) {
+	return b.sendPost(channelID, rootID, message, paths)
 }
 
 func (b *Backend) UpdatePost(ctx context.Context, postID, message string) (domain.Post, error) {
@@ -194,7 +204,7 @@ func (b *Backend) RemoveReaction(ctx context.Context, postID, emojiName string) 
 	return domain.Post{}, fmt.Errorf("post %q not found", postID)
 }
 
-func (b *Backend) sendPost(channelID, rootID, message string) (domain.Post, error) {
+func (b *Backend) sendPost(channelID, rootID, message string, paths []string) (domain.Post, error) {
 	message = strings.TrimSpace(message)
 	if message == "fail-send" {
 		return domain.Post{}, fmt.Errorf("mock send failure")
@@ -216,9 +226,27 @@ func (b *Backend) sendPost(channelID, rootID, message string) (domain.Post, erro
 		Username:  "you",
 		Message:   message,
 		CreateAt:  time.Now().UnixMilli(),
+		Files:     mockFilesForPaths(paths),
 	}
 	b.posts[channelID] = append(b.posts[channelID], post)
 	return post, nil
+}
+
+func mockFilesForPaths(paths []string) []domain.PostFile {
+	files := make([]domain.PostFile, 0, len(paths))
+	for i, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+		files = append(files, domain.PostFile{
+			ID:        fmt.Sprintf("mock-upload-%d", i+1),
+			Name:      filepath.Base(path),
+			Extension: strings.TrimPrefix(filepath.Ext(path), "."),
+			Size:      info.Size(),
+		})
+	}
+	return files
 }
 
 func (b *Backend) WatchPosts(ctx context.Context, events chan<- domain.Event) error {

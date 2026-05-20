@@ -9,11 +9,14 @@ import (
 )
 
 type pendingSend struct {
-	draftKey   string
-	text       string
-	channelID  string
-	rootID     string
-	tempPostID string
+	draftKey        string
+	text            string
+	message         string
+	attachmentPaths []string
+	files           []domain.PostFile
+	channelID       string
+	rootID          string
+	tempPostID      string
 }
 
 func channelDraftKey(channelID string) string {
@@ -95,6 +98,16 @@ func (m *Model) clearDraft(key string) {
 	}
 }
 
+func (m *Model) beginPendingSendPayload(key string, payload composerSendPayload) string {
+	pendingID := m.beginPendingSend(key, payload.Original)
+	pending := m.pendingSends[pendingID]
+	pending.message = payload.Message
+	pending.attachmentPaths = append([]string(nil), payload.AttachmentPaths...)
+	pending.files = append([]domain.PostFile(nil), payload.Files...)
+	m.pendingSends[pendingID] = pending
+	return pendingID
+}
+
 func (m *Model) beginPendingSend(key, text string) string {
 	if key == "" {
 		return ""
@@ -102,7 +115,7 @@ func (m *Model) beginPendingSend(key, text string) string {
 	m.ensureDraftMaps()
 	m.nextPendingSendID++
 	pendingID := strconv.FormatInt(m.nextPendingSendID, 10)
-	m.pendingSends[pendingID] = pendingSend{draftKey: key, text: text}
+	m.pendingSends[pendingID] = pendingSend{draftKey: key, text: text, message: text}
 	delete(m.drafts, key)
 	if key == m.activeDraftKey && m.composerReady() {
 		m.composer.Reset()
@@ -124,9 +137,10 @@ func (m *Model) attachPendingPost(pendingID, channelID, rootID string) domain.Po
 		ID:        pending.tempPostID,
 		ChannelID: channelID,
 		RootID:    rootID,
-		Message:   pending.text,
+		Message:   pending.message,
 		CreateAt:  time.Now().UnixMilli(),
 		Delivery:  domain.DeliveryPending,
+		Files:     append([]domain.PostFile(nil), pending.files...),
 	}
 	if m.session != nil {
 		post.UserID = m.session.User.ID

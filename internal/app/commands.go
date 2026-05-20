@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -216,17 +217,42 @@ func loadThreadCmd(ctx context.Context, backend domain.Backend, rootID string) t
 	}
 }
 
-func sendPostCmd(ctx context.Context, backend domain.Backend, channelID, draftKey, pendingID, text string) tea.Cmd {
+type fileSender interface {
+	SendPostWithFiles(ctx context.Context, channelID, message string, paths []string) (domain.Post, error)
+	SendReplyWithFiles(ctx context.Context, channelID, rootID, message string, paths []string) (domain.Post, error)
+}
+
+func sendPostCmd(ctx context.Context, backend domain.Backend, channelID, draftKey, pendingID string, payload composerSendPayload) tea.Cmd {
 	return func() tea.Msg {
-		post, err := backend.SendPost(ctx, channelID, text)
-		return postSentMsg{channelID: channelID, draftKey: draftKey, pendingID: pendingID, text: text, post: post, err: err}
+		var post domain.Post
+		var err error
+		if len(payload.AttachmentPaths) > 0 {
+			if sender, ok := backend.(fileSender); ok {
+				post, err = sender.SendPostWithFiles(ctx, channelID, payload.Message, payload.AttachmentPaths)
+			} else {
+				err = fmt.Errorf("backend does not support file attachments")
+			}
+		} else {
+			post, err = backend.SendPost(ctx, channelID, payload.Message)
+		}
+		return postSentMsg{channelID: channelID, draftKey: draftKey, pendingID: pendingID, text: payload.Original, post: post, err: err}
 	}
 }
 
-func sendReplyCmd(ctx context.Context, backend domain.Backend, channelID, rootID, draftKey, pendingID, text string) tea.Cmd {
+func sendReplyCmd(ctx context.Context, backend domain.Backend, channelID, rootID, draftKey, pendingID string, payload composerSendPayload) tea.Cmd {
 	return func() tea.Msg {
-		post, err := backend.SendReply(ctx, channelID, rootID, text)
-		return replySentMsg{channelID: channelID, rootID: rootID, draftKey: draftKey, pendingID: pendingID, text: text, post: post, err: err}
+		var post domain.Post
+		var err error
+		if len(payload.AttachmentPaths) > 0 {
+			if sender, ok := backend.(fileSender); ok {
+				post, err = sender.SendReplyWithFiles(ctx, channelID, rootID, payload.Message, payload.AttachmentPaths)
+			} else {
+				err = fmt.Errorf("backend does not support file attachments")
+			}
+		} else {
+			post, err = backend.SendReply(ctx, channelID, rootID, payload.Message)
+		}
+		return replySentMsg{channelID: channelID, rootID: rootID, draftKey: draftKey, pendingID: pendingID, text: payload.Original, post: post, err: err}
 	}
 }
 

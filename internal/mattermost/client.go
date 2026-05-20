@@ -7,9 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -474,14 +477,25 @@ func threadChannelID(posts []domain.Post) string {
 }
 
 func (c *Client) SendPost(ctx context.Context, channelID, message string) (domain.Post, error) {
-	return c.sendPost(ctx, channelID, "", message)
+	return c.sendPost(ctx, channelID, "", message, nil)
 }
 
 func (c *Client) SendReply(ctx context.Context, channelID, rootID, message string) (domain.Post, error) {
 	if rootID == "" {
 		return domain.Post{}, fmt.Errorf("root ID is empty")
 	}
-	return c.sendPost(ctx, channelID, rootID, message)
+	return c.sendPost(ctx, channelID, rootID, message, nil)
+}
+
+func (c *Client) SendPostWithFiles(ctx context.Context, channelID, message string, paths []string) (domain.Post, error) {
+	return c.sendPost(ctx, channelID, "", message, paths)
+}
+
+func (c *Client) SendReplyWithFiles(ctx context.Context, channelID, rootID, message string, paths []string) (domain.Post, error) {
+	if rootID == "" {
+		return domain.Post{}, fmt.Errorf("root ID is empty")
+	}
+	return c.sendPost(ctx, channelID, rootID, message, paths)
 }
 
 func (c *Client) UpdatePost(ctx context.Context, postID, message string) (domain.Post, error) {
@@ -531,21 +545,96 @@ func (c *Client) RemoveReaction(ctx context.Context, postID, emojiName string) (
 	return c.loadPostByID(ctx, postID)
 }
 
-func (c *Client) sendPost(ctx context.Context, channelID, rootID, message string) (domain.Post, error) {
+func (c *Client) sendPost(ctx context.Context, channelID, rootID, message string, paths []string) (domain.Post, error) {
 	message = strings.TrimSpace(message)
-	if message == "" {
+	if message == "" && len(paths) == 0 {
 		return domain.Post{}, fmt.Errorf("message is empty")
 	}
+	fileIDs, err := c.uploadFiles(ctx, channelID, paths)
+	if err != nil {
+		return domain.Post{}, err
+	}
 	var post mmPost
-	body := map[string]string{"channel_id": channelID, "message": message}
+	body := mmCreatePostRequest{ChannelID: channelID, Message: message, FileIDs: fileIDs}
 	if rootID != "" {
-		body["root_id"] = rootID
+		body.RootID = rootID
 	}
 	if err := c.do(ctx, http.MethodPost, "/api/v4/posts", body, &post); err != nil {
 		return domain.Post{}, fmt.Errorf("send post: %w", err)
 	}
 	out := c.postToDomain(post, channelID)
 	return out, nil
+}
+
+func (c *Client) uploadFiles(ctx context.Context, channelID string, paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	if channelID == "" {
+		return nil, fmt.Errorf("channel ID is empty")
+	}
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("channel_id", channelID); err != nil {
+		return nil, err
+	}
+	for _, path := range paths {
+		if err := addMultipartFile(writer, path); err != nil {
+			_ = writer.Close()
+			return nil, err
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v4/files", &body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if token := c.currentToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, wrapRequestError("POST /api/v4/files", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, wrapHTTPError("POST /api/v4/files", resp.StatusCode, strings.TrimSpace(string(msg)))
+	}
+	var out mmFileUploadResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(out.FileInfos))
+	for _, file := range out.FileInfos {
+		if file.ID != "" {
+			ids = append(ids, file.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("upload files: server returned no file IDs")
+	}
+	return ids, nil
+}
+
+func addMultipartFile(writer *multipart.Writer, path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("attach %s: %w", path, err)
+	}
+	defer file.Close()
+	part, err := writer.CreateFormFile("files", filepath.Base(path))
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *Client) Close() error {
@@ -1114,6 +1203,17 @@ type mmFileInfo struct {
 	Size      int64  `json:"size"`
 	Width     int    `json:"width"`
 	Height    int    `json:"height"`
+}
+
+type mmCreatePostRequest struct {
+	ChannelID string   `json:"channel_id"`
+	RootID    string   `json:"root_id,omitempty"`
+	Message   string   `json:"message"`
+	FileIDs   []string `json:"file_ids,omitempty"`
+}
+
+type mmFileUploadResponse struct {
+	FileInfos []mmFileInfo `json:"file_infos"`
 }
 
 type mmThreadList struct {

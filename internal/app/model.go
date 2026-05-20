@@ -1046,24 +1046,30 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.focus == focusComposer {
 		switch msg.String() {
 		case "enter":
-			text := strings.TrimSpace(m.composer.Value())
-			if text == "" || m.currentChannelID() == "" {
+			raw := m.composer.Value()
+			payload, err := parseComposerSend(raw)
+			if err != nil {
+				m.err = err.Error()
+				m.status = "attachment failed"
+				return m, nil
+			}
+			if payload.Message == "" && len(payload.AttachmentPaths) == 0 || m.currentChannelID() == "" {
 				return m, nil
 			}
 			if m.editingPostID != "" {
 				m.status = "updating…"
-				return m, updatePostCmd(m.ctx, m.backend, m.editingPostID, text)
+				return m, updatePostCmd(m.ctx, m.backend, m.editingPostID, payload.Message)
 			}
 			key := m.currentDraftKey()
 			channelID := m.currentChannelID()
-			pendingID := m.beginPendingSend(key, text)
+			pendingID := m.beginPendingSendPayload(key, payload)
 			pendingPost := m.attachPendingPost(pendingID, channelID, "")
 			m.addPost(pendingPost)
 			m.status = "sending…"
 			m.loading = true
 			m.refreshViewport()
 			m.viewport.GotoBottom()
-			return m, sendPostCmd(m.ctx, m.backend, channelID, key, pendingID, text)
+			return m, sendPostCmd(m.ctx, m.backend, channelID, key, pendingID, payload)
 		case "alt+enter":
 			m.composer.InsertString("\n")
 			return m, nil
@@ -1480,19 +1486,24 @@ func (m Model) handleThreadKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "enter":
-		text := strings.TrimSpace(m.composer.Value())
-		if text == "" || m.threadRootID == "" || m.currentChannelID() == "" {
+		payload, err := parseComposerSend(m.composer.Value())
+		if err != nil {
+			m.err = err.Error()
+			m.status = "attachment failed"
+			return m, nil
+		}
+		if payload.Message == "" && len(payload.AttachmentPaths) == 0 || m.threadRootID == "" || m.currentChannelID() == "" {
 			return m, nil
 		}
 		key := m.currentDraftKey()
 		channelID := m.currentChannelID()
-		pendingID := m.beginPendingSend(key, text)
+		pendingID := m.beginPendingSendPayload(key, payload)
 		pendingPost := m.attachPendingPost(pendingID, channelID, m.threadRootID)
 		m.addThreadPost(pendingPost)
 		m.addPostToCache(channelID, pendingPost)
 		m.status = "sending reply…"
 		m.syncThreadViewportSelection()
-		return m, sendReplyCmd(m.ctx, m.backend, channelID, m.threadRootID, key, pendingID, text)
+		return m, sendReplyCmd(m.ctx, m.backend, channelID, m.threadRootID, key, pendingID, payload)
 	case "alt+enter":
 		m.composer.InsertString("\n")
 		return m, nil
