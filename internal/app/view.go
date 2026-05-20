@@ -1312,7 +1312,7 @@ func (m Model) renderSidebarChannelLine(index, width int) string {
 	if scope := m.scopeSuffix(ch); scope != "" {
 		label += " · " + scope
 	}
-	badge := channelBadge(ch)
+	badge := m.channelBadge(ch)
 	if index == m.selectedChannel {
 		contentWidth := max(0, width-2)
 		line := joinLabelAndBadge(label, badge, contentWidth)
@@ -1322,9 +1322,12 @@ func (m Model) renderSidebarChannelLine(index, width int) string {
 	return style.Render(line)
 }
 
-func channelBadge(ch domain.Channel) string {
+func (m Model) channelBadge(ch domain.Channel) string {
 	if ch.Mentions > 0 {
 		return sidebarMentionPill.Render(fmt.Sprintf("@%d", ch.Mentions))
+	}
+	if count := m.unresolvedThreadSignalCount(ch.ID); count > 0 {
+		return sidebarBadgeStyle.Render(fmt.Sprintf("↳%d", count))
 	}
 	if ch.Unread > 0 {
 		return sidebarBadgeStyle.Render(fmt.Sprintf("%d", ch.Unread))
@@ -1552,6 +1555,9 @@ func (m Model) channelMeta(ch domain.Channel) string {
 	}
 	if ch.Mentions > 0 {
 		parts = append(parts, fmt.Sprintf("@%d", ch.Mentions))
+	}
+	if count := m.unresolvedThreadSignalCount(ch.ID); count > 0 {
+		parts = append(parts, fmt.Sprintf("↳%d unread threads", count))
 	} else if ch.Unread > 0 {
 		parts = append(parts, "unread")
 	}
@@ -1825,6 +1831,9 @@ func (m Model) renderPosts() (string, []int) {
 		if m.loading || strings.Contains(m.status, "loading") || strings.Contains(m.status, "refreshing") {
 			return muted.Render(m.tr("Loading messages…")), nil
 		}
+		if banner := m.renderHiddenThreadSignalsBanner(); banner != "" {
+			return banner, nil
+		}
 		return muted.Render(m.tr("No messages yet.")), nil
 	}
 	var b strings.Builder
@@ -1846,11 +1855,21 @@ func (m Model) renderPosts() (string, []int) {
 		writeLine(muted.Render(m.tr("Press [ to load older messages")))
 		writeBlank()
 	}
+	if banner := m.renderHiddenThreadSignalsBanner(); banner != "" {
+		writeLine(banner)
+		writeBlank()
+	}
 
-	offsets := make([]int, len(m.posts))
+	renderPosts := append([]domain.Post(nil), m.posts...)
+	for i := range renderPosts {
+		if m.hasThreadSignal(renderPosts[i].ChannelID, renderPosts[i].ID) {
+			renderPosts[i].ThreadUnread = true
+		}
+	}
+	offsets := make([]int, len(renderPosts))
 	lastDate := ""
-	importantIndex := firstImportantPostIndex(m.posts)
-	for i, p := range m.posts {
+	importantIndex := firstImportantPostIndex(renderPosts)
+	for i, p := range renderPosts {
 		date := formatDate(p.CreateAt)
 		if date != "" && date != lastDate {
 			if lastDate != "" {
@@ -1864,7 +1883,7 @@ func (m Model) renderPosts() (string, []int) {
 			writeLine(accent.Render("──── " + m.tr("new messages") + " " + strings.Repeat("─", max(0, m.viewport.Width-20))))
 			writeBlank()
 		}
-		grouped := i > 0 && shouldGroupTimelinePost(m.posts[i-1], p)
+		grouped := i > 0 && shouldGroupTimelinePost(renderPosts[i-1], p)
 		offsets[i] = lineNo
 		selected := i == m.selectedPost && m.focus == focusTimeline
 		if !grouped {
@@ -1880,11 +1899,24 @@ func (m Model) renderPosts() (string, []int) {
 		if badges := renderReactionBadges(p); badges != "" {
 			writeLine(m.renderPostLine(renderMessageBodyLine(badges, p, selected), selected))
 		}
-		if i < len(m.posts)-1 && !shouldGroupTimelinePost(p, m.posts[i+1]) {
+		if i < len(renderPosts)-1 && !shouldGroupTimelinePost(p, renderPosts[i+1]) {
 			writeBlank()
 		}
 	}
 	return strings.TrimRight(b.String(), "\n"), offsets
+}
+
+func (m Model) renderHiddenThreadSignalsBanner() string {
+	signals := m.hiddenThreadSignals(m.currentChannelID())
+	if len(signals) == 0 {
+		return ""
+	}
+	count := 0
+	for _, signal := range signals {
+		count += max(1, signal.UnreadCount)
+	}
+	label := fmt.Sprintf("↳ %d unread %s outside loaded timeline · ctrl+u triage", count, m.plural(count, "thread", "threads"))
+	return accent.Render(label)
 }
 
 func renderTimelineSeparator(label string, width int) string {

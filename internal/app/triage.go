@@ -112,10 +112,15 @@ func (m *Model) dismissCurrentTriageItem() bool {
 	if m.triageSelected < 0 || m.triageSelected >= len(m.triageItems) {
 		return false
 	}
-	if m.dismissedTriage == nil {
-		m.dismissedTriage = map[string]struct{}{}
+	item := m.triageItems[m.triageSelected]
+	if item.Kind == triageThreadReply && item.ChannelID != "" && item.RootID != "" {
+		m.applyThreadRead(item.ChannelID, item.RootID)
+	} else {
+		if m.dismissedTriage == nil {
+			m.dismissedTriage = map[string]struct{}{}
+		}
+		m.dismissedTriage[triageDismissKey(item)] = struct{}{}
 	}
-	m.dismissedTriage[triageDismissKey(m.triageItems[m.triageSelected])] = struct{}{}
 	m.rebuildTriageItems()
 	return true
 }
@@ -342,11 +347,32 @@ func buildThreadReplyTriageItems(m Model) []triageItem {
 			if root, ok := triageThreadRootPost(threadPosts, rootID); ok {
 				item.ReplyCount = root.ReplyCount
 			}
-			key := channelID + "\x00" + rootID
-			current, ok := latestByThread[key]
-			if !ok || triageSortLess(item, current) {
-				latestByThread[key] = item
+			upsertThreadTriageItem(latestByThread, item)
+		}
+	}
+	for channelID, signals := range m.threadSignalsByChannel {
+		channel, ok := triageChannelByID(m, channelID)
+		if !ok || (channel.Unread <= 0 && channel.Mentions <= 0 && len(signals) == 0) {
+			continue
+		}
+		for _, signal := range signals {
+			if signal.RootID == "" {
+				continue
 			}
+			item := triageItem{
+				Kind:         triageThreadReply,
+				ChannelID:    channelID,
+				RootID:       signal.RootID,
+				PostID:       signal.PostID,
+				Title:        m.channelLabel(channelID),
+				Actor:        signal.Actor,
+				Preview:      signal.Preview,
+				CreateAt:     signal.CreateAt,
+				UnreadCount:  signal.UnreadCount,
+				MentionCount: signal.MentionCount,
+				Score:        triageKindPriority(triageThreadReply),
+			}
+			upsertThreadTriageItem(latestByThread, item)
 		}
 	}
 	items := make([]triageItem, 0, len(latestByThread))
@@ -354,6 +380,14 @@ func buildThreadReplyTriageItems(m Model) []triageItem {
 		items = append(items, item)
 	}
 	return items
+}
+
+func upsertThreadTriageItem(items map[string]triageItem, item triageItem) {
+	key := item.ChannelID + "\x00" + item.RootID
+	current, ok := items[key]
+	if !ok || triageSortLess(item, current) {
+		items[key] = item
+	}
 }
 
 func triageThreadPosts(m Model, channelID, rootID string, posts []domain.Post) []domain.Post {

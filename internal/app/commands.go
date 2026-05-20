@@ -23,10 +23,16 @@ type channelsLoadedMsg struct {
 	err      error
 }
 
+type threadSignalsLoadedMsg struct {
+	signals []domain.ThreadSignal
+	err     error
+}
+
 type postsLoadedMsg struct {
-	channelID string
-	posts     []domain.Post
-	err       error
+	channelID     string
+	posts         []domain.Post
+	threadSignals []domain.ThreadSignal
+	err           error
 }
 
 type olderPostsLoadedMsg struct {
@@ -158,10 +164,35 @@ func channelTypeRank(t string) int {
 	}
 }
 
+type threadSignalLoader interface {
+	LoadThreadSignals(ctx context.Context, channelID string) ([]domain.ThreadSignal, error)
+}
+
+type teamThreadSignalLoader interface {
+	LoadTeamThreadSignals(ctx context.Context, teamID string) ([]domain.ThreadSignal, error)
+}
+
 func loadPostsCmd(ctx context.Context, backend domain.Backend, channelID string) tea.Cmd {
 	return func() tea.Msg {
 		posts, err := backend.LoadPosts(ctx, channelID, 80)
-		return postsLoadedMsg{channelID: channelID, posts: posts, err: err}
+		var signals []domain.ThreadSignal
+		if err == nil {
+			if loader, ok := backend.(threadSignalLoader); ok {
+				signals, _ = loader.LoadThreadSignals(ctx, channelID)
+			}
+		}
+		return postsLoadedMsg{channelID: channelID, posts: posts, threadSignals: signals, err: err}
+	}
+}
+
+func loadTeamThreadSignalsCmd(ctx context.Context, backend domain.Backend, teamID string) tea.Cmd {
+	return func() tea.Msg {
+		loader, ok := backend.(teamThreadSignalLoader)
+		if !ok || teamID == "" {
+			return threadSignalsLoadedMsg{}
+		}
+		signals, err := loader.LoadTeamThreadSignals(ctx, teamID)
+		return threadSignalsLoadedMsg{signals: signals, err: err}
 	}
 }
 

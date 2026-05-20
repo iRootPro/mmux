@@ -79,6 +79,20 @@ type PostFile struct {
 	Height    int
 }
 
+// ThreadSignal is an unread thread/reply signal that may exist even when the
+// thread root post is outside the currently loaded timeline window.
+type ThreadSignal struct {
+	ChannelID    string
+	RootID       string
+	PostID       string
+	Actor        string
+	Preview      string
+	CreateAt     int64
+	UnreadCount  int
+	MentionCount int
+	RootLoaded   bool
+}
+
 // Post is a normalized chat message.
 type Post struct {
 	ID           string

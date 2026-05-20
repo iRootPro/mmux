@@ -309,3 +309,67 @@ func TestPostFilesToDomainFallsBackToFileIDs(t *testing.T) {
 		t.Fatalf("files = %#v", files)
 	}
 }
+
+func TestLoadPostsExposesThreadSignalWhenRootIsOutsideWindow(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v4/channels/c1/posts", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(mmPostList{
+			Order: []string{"r1", "p2"},
+			Posts: map[string]mmPost{
+				"p2": {ID: "p2", ChannelID: "c1", UserID: "u1", Message: "visible", CreateAt: 20},
+				"r1": {ID: "r1", ChannelID: "c1", RootID: "root-old", UserID: "u2", Message: "hidden thread reply", CreateAt: 30},
+			},
+		})
+	})
+	mux.HandleFunc("/api/v4/users/u1/teams/t1/threads", func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := New(config.Config{ServerURL: server.URL, Token: "token"})
+	client.userID = "u1"
+	client.lastViewedAt["c1"] = 25
+	client.channelTeamID["c1"] = "t1"
+	client.displayNameCache["u2"] = "Alice"
+	posts, err := client.LoadPosts(context.Background(), "c1", 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(posts) != 1 || posts[0].ID != "p2" {
+		t.Fatalf("rootless reply should stay out of timeline: %#v", posts)
+	}
+	signals, err := client.LoadThreadSignals(context.Background(), "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(signals) != 1 || signals[0].RootID != "root-old" || signals[0].PostID != "r1" || signals[0].Actor != "Alice" || signals[0].Preview != "hidden thread reply" {
+		t.Fatalf("bad thread signals: %#v", signals)
+	}
+}
+
+func TestLoadThreadSignalsUsesCRTWhenAvailable(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v4/users/u1/teams/t1/threads", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(mmThreadList{Threads: []mmThread{{
+			Post:           mmPost{ID: "root", ChannelID: "c1", UserID: "u2", Message: "root text", CreateAt: 10},
+			UnreadReplies:  3,
+			UnreadMentions: 1,
+			LastReplyAt:    50,
+		}}})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := New(config.Config{ServerURL: server.URL, Token: "token"})
+	client.userID = "u1"
+	client.channelTeamID["c1"] = "t1"
+	client.displayNameCache["u2"] = "Alice"
+	signals, err := client.LoadThreadSignals(context.Background(), "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(signals) != 1 || signals[0].RootID != "root" || signals[0].UnreadCount != 3 || signals[0].MentionCount != 1 || signals[0].CreateAt != 50 {
+		t.Fatalf("bad CRT signals: %#v", signals)
+	}
+}

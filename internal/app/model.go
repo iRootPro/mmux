@@ -42,22 +42,23 @@ type Model struct {
 	cancel context.CancelFunc
 	events chan domain.Event
 
-	session              *domain.Session
-	channels             []domain.Channel
-	posts                []domain.Post
-	postsByChannel       map[string][]domain.Post
-	scopeChannels        map[string][]domain.Channel
-	postLineOffsets      []int
-	recentEvents         []domain.Post
-	threadOpen           bool
-	threadRootID         string
-	threadPosts          []domain.Post
-	threadLineOffsets    []int
-	threadLoading        bool
-	threadSelected       int
-	threadSelectedPostID string
-	threadViewport       viewport.Model
-	threadFocusComposer  bool
+	session                *domain.Session
+	channels               []domain.Channel
+	posts                  []domain.Post
+	postsByChannel         map[string][]domain.Post
+	threadSignalsByChannel map[string][]domain.ThreadSignal
+	scopeChannels          map[string][]domain.Channel
+	postLineOffsets        []int
+	recentEvents           []domain.Post
+	threadOpen             bool
+	threadRootID           string
+	threadPosts            []domain.Post
+	threadLineOffsets      []int
+	threadLoading          bool
+	threadSelected         int
+	threadSelectedPostID   string
+	threadViewport         viewport.Model
+	threadFocusComposer    bool
 
 	selectedTeam           int
 	selectedChannel        int
@@ -151,29 +152,30 @@ func New(backend domain.Backend, cfg config.Config, mockFallback bool) Model {
 	}
 
 	m := Model{
-		backend:           backend,
-		cfg:               cfg,
-		ctx:               ctx,
-		cancel:            cancel,
-		events:            make(chan domain.Event, 64),
-		focus:             focusComposer,
-		viewport:          vp,
-		threadViewport:    threadVP,
-		composer:          composer,
-		postsByChannel:    map[string][]domain.Post{},
-		scopeChannels:     map[string][]domain.Channel{},
-		threadSelected:    -1,
-		selectedPost:      -1,
-		favoriteChannels:  favorites,
-		collapsedSections: map[string]bool{},
-		dismissedTriage:   map[string]struct{}{},
-		drafts:            map[string]string{},
-		pendingSends:      map[string]pendingSend{},
-		status:            "connecting…",
-		connectionState:   domain.ConnectionConnecting,
-		loading:           true,
-		hasOlder:          true,
-		mockFallback:      mockFallback,
+		backend:                backend,
+		cfg:                    cfg,
+		ctx:                    ctx,
+		cancel:                 cancel,
+		events:                 make(chan domain.Event, 64),
+		focus:                  focusComposer,
+		viewport:               vp,
+		threadViewport:         threadVP,
+		composer:               composer,
+		postsByChannel:         map[string][]domain.Post{},
+		threadSignalsByChannel: map[string][]domain.ThreadSignal{},
+		scopeChannels:          map[string][]domain.Channel{},
+		threadSelected:         -1,
+		selectedPost:           -1,
+		favoriteChannels:       favorites,
+		collapsedSections:      map[string]bool{},
+		dismissedTriage:        map[string]struct{}{},
+		drafts:                 map[string]string{},
+		pendingSends:           map[string]pendingSend{},
+		status:                 "connecting…",
+		connectionState:        domain.ConnectionConnecting,
+		loading:                true,
+		hasOlder:               true,
+		mockFallback:           mockFallback,
 	}
 	m.setupRequired = !mockFallback && needsInitialSetup(cfg)
 	if m.setupRequired {
@@ -261,7 +263,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.posts = nil
 			m.refreshViewport()
 		}
-		return m, tea.Batch(loadPostsCmd(m.ctx, m.backend, m.currentChannelID()), m.saveCacheCmd())
+		cmds := []tea.Cmd{loadPostsCmd(m.ctx, m.backend, m.currentChannelID()), m.saveCacheCmd()}
+		if teamID := m.currentTeamID(); teamID != "" {
+			cmds = append(cmds, loadTeamThreadSignalsCmd(m.ctx, m.backend, teamID))
+		}
+		return m, tea.Batch(cmds...)
+
+	case threadSignalsLoadedMsg:
+		if msg.err != nil {
+			return m, nil
+		}
+		for _, signal := range msg.signals {
+			m.mergeThreadSignals(signal.ChannelID, []domain.ThreadSignal{signal})
+		}
+		m.reconcileAllImportance()
+		m.applyThreadSignalsToLoadedPosts(m.currentChannelID())
+		m.rebuildTriageItems()
+		m.refreshViewport()
+		return m, nil
 
 	case postsLoadedMsg:
 		if msg.channelID != m.currentChannelID() {
@@ -280,8 +299,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = ""
 		m.hasOlder = len(msg.posts) >= 80
+		m.mergeThreadSignals(msg.channelID, msg.threadSignals)
 		m.cachePosts(msg.channelID, msg.posts)
 		m.posts = append([]domain.Post(nil), msg.posts...)
+		m.applyThreadSignalsToLoadedPosts(msg.channelID)
 		m.selectedPost = m.initialSelectedPost(msg.channelID)
 		m.status = fmt.Sprintf("%d messages", len(m.posts))
 		if m.selectedPost >= 0 && m.selectedPost < len(m.posts) && (m.posts[m.selectedPost].Unread || m.posts[m.selectedPost].ThreadUnread) {
@@ -2748,6 +2769,7 @@ func (m *Model) applyIncomingPost(post domain.Post, visibleThread, mentionActivi
 		}
 		post.Unread = true
 		post.ThreadUnread = true
+		m.mergeThreadSignals(post.ChannelID, []domain.ThreadSignal{threadSignalFromPost(post, false)})
 		if m.addPostToCache(post.ChannelID, post) {
 			m.bumpReplyCount(post.RootID)
 		}

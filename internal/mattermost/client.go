@@ -30,6 +30,8 @@ type Client struct {
 	userID           string
 	displayNameCache map[string]string
 	lastViewedAt     map[string]int64
+	channelTeamID    map[string]string
+	threadSignals    map[string][]domain.ThreadSignal
 	closed           bool
 }
 
@@ -41,6 +43,8 @@ func New(cfg config.Config) *Client {
 		password:         cfg.Password,
 		displayNameCache: map[string]string{},
 		lastViewedAt:     map[string]int64{},
+		channelTeamID:    map[string]string{},
+		threadSignals:    map[string][]domain.ThreadSignal{},
 		httpClient: &http.Client{
 			Timeout: 20 * time.Second,
 		},
@@ -165,7 +169,14 @@ func (c *Client) LoadChannels(ctx context.Context, teamID string) ([]domain.Chan
 		if c.lastViewedAt == nil {
 			c.lastViewedAt = map[string]int64{}
 		}
+		if c.channelTeamID == nil {
+			c.channelTeamID = map[string]string{}
+		}
 		c.lastViewedAt[ch.ID] = member.LastViewedAt
+		c.channelTeamID[ch.ID] = ch.TeamID
+		if ch.TeamID == "" {
+			c.channelTeamID[ch.ID] = teamID
+		}
 		c.mu.Unlock()
 	}
 	statuses := c.loadUserStatuses(ctx, statusUserIDs)
@@ -224,6 +235,8 @@ func (c *Client) loadPosts(ctx context.Context, channelID, beforePostID string, 
 	posts := make([]domain.Post, 0, len(list.Order))
 	replyCounts := map[string]int{}
 	threadUnread := map[string]bool{}
+	rootLoaded := map[string]bool{}
+	fallbackSignals := map[string]domain.ThreadSignal{}
 	// Mattermost channel history can include thread replies. In Band's default
 	// view those replies live inside the thread, so keep the main timeline to
 	// root posts and use replies only to improve the visible reply counter.
@@ -237,9 +250,15 @@ func (c *Client) loadPosts(ctx context.Context, channelID, beforePostID string, 
 			replyCounts[p.RootID]++
 			if lastViewedAt > 0 && p.CreateAt > lastViewedAt {
 				threadUnread[p.RootID] = true
+				signal := c.postThreadSignal(p, false)
+				current, ok := fallbackSignals[signal.RootID]
+				if !ok || signal.CreateAt > current.CreateAt {
+					fallbackSignals[signal.RootID] = signal
+				}
 			}
 			continue
 		}
+		rootLoaded[p.ID] = true
 		post := c.postToDomain(p, channelID)
 		if lastViewedAt > 0 && post.CreateAt > lastViewedAt {
 			post.Unread = true
@@ -254,8 +273,125 @@ func (c *Client) loadPosts(ctx context.Context, channelID, beforePostID string, 
 			posts[i].ThreadUnread = true
 		}
 	}
+	for rootID, signal := range fallbackSignals {
+		signal.RootLoaded = rootLoaded[rootID]
+		fallbackSignals[rootID] = signal
+	}
 	c.hydratePosts(ctx, posts)
+	c.storeThreadSignals(channelID, fallbackSignals)
 	return posts, nil
+}
+
+func (c *Client) postThreadSignal(p mmPost, rootLoaded bool) domain.ThreadSignal {
+	return domain.ThreadSignal{
+		ChannelID:   p.ChannelID,
+		RootID:      p.RootID,
+		PostID:      p.ID,
+		Actor:       c.usernameFor(p.UserID),
+		Preview:     p.Message,
+		CreateAt:    p.CreateAt,
+		UnreadCount: 1,
+		RootLoaded:  rootLoaded,
+	}
+}
+
+func (c *Client) storeThreadSignals(channelID string, signals map[string]domain.ThreadSignal) {
+	out := make([]domain.ThreadSignal, 0, len(signals))
+	for _, signal := range signals {
+		if signal.RootID != "" {
+			out = append(out, signal)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].CreateAt != out[j].CreateAt {
+			return out[i].CreateAt > out[j].CreateAt
+		}
+		return out[i].RootID < out[j].RootID
+	})
+	c.mu.Lock()
+	if c.threadSignals == nil {
+		c.threadSignals = map[string][]domain.ThreadSignal{}
+	}
+	c.threadSignals[channelID] = out
+	c.mu.Unlock()
+}
+
+func (c *Client) cachedThreadSignals(channelID string) []domain.ThreadSignal {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return append([]domain.ThreadSignal(nil), c.threadSignals[channelID]...)
+}
+
+func (c *Client) channelTeam(channelID string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.channelTeamID[channelID]
+}
+
+func (c *Client) LoadThreadSignals(ctx context.Context, channelID string) ([]domain.ThreadSignal, error) {
+	if channelID == "" {
+		return nil, fmt.Errorf("channel ID is empty")
+	}
+	if teamID := c.channelTeam(channelID); teamID != "" {
+		if signals, err := c.loadCRTThreadSignals(ctx, teamID, channelID); err == nil && len(signals) > 0 {
+			return signals, nil
+		}
+	}
+	return c.cachedThreadSignals(channelID), nil
+}
+
+func (c *Client) LoadTeamThreadSignals(ctx context.Context, teamID string) ([]domain.ThreadSignal, error) {
+	if teamID == "" {
+		return nil, fmt.Errorf("team ID is empty")
+	}
+	return c.loadCRTThreadSignals(ctx, teamID, "")
+}
+
+func (c *Client) loadCRTThreadSignals(ctx context.Context, teamID, channelID string) ([]domain.ThreadSignal, error) {
+	userID := c.currentUserID()
+	if userID == "" {
+		return nil, fmt.Errorf("not connected")
+	}
+	var list mmThreadList
+	path := "/api/v4/users/" + url.PathEscape(userID) + "/teams/" + url.PathEscape(teamID) + "/threads?extended=true&deleted=false"
+	if err := c.do(ctx, http.MethodGet, path, nil, &list); err != nil {
+		return nil, err
+	}
+	out := make([]domain.ThreadSignal, 0, len(list.Threads))
+	for _, thread := range list.Threads {
+		if thread.Post.ID == "" || thread.Post.ChannelID == "" {
+			continue
+		}
+		if channelID != "" && thread.Post.ChannelID != channelID {
+			continue
+		}
+		unread := thread.UnreadReplies
+		if unread <= 0 && thread.UnreadMentions <= 0 {
+			continue
+		}
+		if unread <= 0 {
+			unread = 1
+		}
+		createAt := thread.LastReplyAt
+		if createAt == 0 {
+			createAt = thread.Post.UpdateAt
+		}
+		if createAt == 0 {
+			createAt = thread.Post.CreateAt
+		}
+		out = append(out, domain.ThreadSignal{
+			ChannelID:    thread.Post.ChannelID,
+			RootID:       thread.Post.ID,
+			PostID:       thread.Post.ID,
+			Actor:        c.usernameFor(thread.Post.UserID),
+			Preview:      thread.Post.Message,
+			CreateAt:     createAt,
+			UnreadCount:  unread,
+			MentionCount: thread.UnreadMentions,
+			RootLoaded:   false,
+		})
+	}
+	return out, nil
 }
 
 func (c *Client) ViewChannel(ctx context.Context, channelID string) error {
@@ -883,6 +1019,19 @@ type mmFileInfo struct {
 	Size      int64  `json:"size"`
 	Width     int    `json:"width"`
 	Height    int    `json:"height"`
+}
+
+type mmThreadList struct {
+	Threads []mmThread `json:"threads"`
+}
+
+type mmThread struct {
+	Post           mmPost `json:"post"`
+	UnreadReplies  int    `json:"unread_replies"`
+	UnreadMentions int    `json:"unread_mentions"`
+	ReplyCount     int    `json:"reply_count"`
+	LastReplyAt    int64  `json:"last_reply_at"`
+	LastViewedAt   int64  `json:"last_viewed_at"`
 }
 
 type mmPost struct {

@@ -26,6 +26,7 @@ func (m *Model) applyThreadRead(channelID, rootID string) {
 	if channelID == "" || rootID == "" {
 		return
 	}
+	m.clearThreadSignal(channelID, rootID)
 	m.clearThreadImportance(channelID, rootID)
 	m.reconcileChannelImportance(channelID)
 }
@@ -37,6 +38,8 @@ func (m *Model) reconcileChannelImportance(channelID string) {
 	}
 
 	unread, mentions := reconcileChannelPosts(m.channelImportancePosts(channelID))
+	unread += m.unresolvedThreadSignalCount(channelID)
+	mentions += m.unresolvedThreadSignalMentions(channelID)
 	m.channels[idx].Unread = unread
 	m.channels[idx].Mentions = mentions
 }
