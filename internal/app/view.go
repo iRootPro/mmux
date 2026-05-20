@@ -1999,6 +1999,8 @@ func deliveryBadge(post domain.Post) string {
 		return muted.Render("  … sending")
 	case domain.DeliverySent:
 		return muted.Render("  ✓")
+	case domain.DeliveryRead:
+		return accent.Render("  ✓✓")
 	case domain.DeliveryFailed:
 		return errorText.Render("  failed")
 	default:

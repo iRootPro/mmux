@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"band-tui/internal/config"
+	"band-tui/internal/domain"
 )
 
 func TestClientConnectLoadAndSend(t *testing.T) {
@@ -371,5 +372,47 @@ func TestLoadThreadSignalsUsesCRTWhenAvailable(t *testing.T) {
 	}
 	if len(signals) != 1 || signals[0].RootID != "root" || signals[0].UnreadCount != 3 || signals[0].MentionCount != 1 || signals[0].CreateAt != 50 {
 		t.Fatalf("bad CRT signals: %#v", signals)
+	}
+}
+
+func TestLoadPostsMarksOwnDMMessagesReadWhenPeerViewedChannel(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v4/channels/d1/posts", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(mmPostList{
+			Order: []string{"p3", "p2", "p1"},
+			Posts: map[string]mmPost{
+				"p1": {ID: "p1", ChannelID: "d1", UserID: "me", Message: "read by peer", CreateAt: 10},
+				"p2": {ID: "p2", ChannelID: "d1", UserID: "me", Message: "not read yet", CreateAt: 30},
+				"p3": {ID: "p3", ChannelID: "d1", UserID: "other", Message: "incoming", CreateAt: 40},
+			},
+		})
+	})
+	mux.HandleFunc("/api/v4/channels/d1/members", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode([]mmChannelMember{
+			{ChannelID: "d1", UserID: "me", LastViewedAt: 50},
+			{ChannelID: "d1", UserID: "other", LastViewedAt: 20},
+		})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := New(config.Config{ServerURL: server.URL, Token: "token"})
+	client.userID = "me"
+	client.channelType["d1"] = "D"
+	posts, err := client.LoadPosts(context.Background(), "d1", 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(posts) != 3 {
+		t.Fatalf("bad posts: %#v", posts)
+	}
+	if posts[0].ID != "p1" || posts[0].Delivery != domain.DeliveryRead {
+		t.Fatalf("old own DM message should be read: %#v", posts[0])
+	}
+	if posts[1].ID != "p2" || posts[1].Delivery != domain.DeliverySent {
+		t.Fatalf("new own DM message should only be sent: %#v", posts[1])
+	}
+	if posts[2].ID != "p3" || posts[2].Delivery != domain.DeliveryNone {
+		t.Fatalf("incoming message should not show own delivery: %#v", posts[2])
 	}
 }

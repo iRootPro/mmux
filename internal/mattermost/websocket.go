@@ -149,8 +149,7 @@ func (c *Client) watchOnce(ctx context.Context, events chan<- domain.Event) erro
 			if post.DeleteAt != 0 {
 				continue
 			}
-			out := post.toDomain(post.ChannelID)
-			out.Username = c.usernameFor(out.UserID)
+			out := c.postToDomain(post, post.ChannelID)
 			out.Mentioned = c.mentionsCurrentUser(msg.Data.Mentions)
 			if !sendEvent(ctx, events, domain.Event{Kind: domain.EventPost, Post: out}) {
 				return ctx.Err()

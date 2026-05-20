@@ -74,6 +74,7 @@ const (
 	DeliveryNone    DeliveryState = ""
 	DeliveryPending DeliveryState = "pending"
 	DeliverySent    DeliveryState = "sent"
+	DeliveryRead    DeliveryState = "read"
 	DeliveryFailed  DeliveryState = "failed"
 )
 

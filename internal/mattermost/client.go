@@ -31,6 +31,7 @@ type Client struct {
 	displayNameCache map[string]string
 	lastViewedAt     map[string]int64
 	channelTeamID    map[string]string
+	channelType      map[string]string
 	threadSignals    map[string][]domain.ThreadSignal
 	closed           bool
 }
@@ -44,6 +45,7 @@ func New(cfg config.Config) *Client {
 		displayNameCache: map[string]string{},
 		lastViewedAt:     map[string]int64{},
 		channelTeamID:    map[string]string{},
+		channelType:      map[string]string{},
 		threadSignals:    map[string][]domain.ThreadSignal{},
 		httpClient: &http.Client{
 			Timeout: 20 * time.Second,
@@ -172,11 +174,15 @@ func (c *Client) LoadChannels(ctx context.Context, teamID string) ([]domain.Chan
 		if c.channelTeamID == nil {
 			c.channelTeamID = map[string]string{}
 		}
+		if c.channelType == nil {
+			c.channelType = map[string]string{}
+		}
 		c.lastViewedAt[ch.ID] = member.LastViewedAt
 		c.channelTeamID[ch.ID] = ch.TeamID
 		if ch.TeamID == "" {
 			c.channelTeamID[ch.ID] = teamID
 		}
+		c.channelType[ch.ID] = ch.Type
 		c.mu.Unlock()
 	}
 	statuses := c.loadUserStatuses(ctx, statusUserIDs)
@@ -273,6 +279,7 @@ func (c *Client) loadPosts(ctx context.Context, channelID, beforePostID string, 
 			posts[i].ThreadUnread = true
 		}
 	}
+	c.applyReadReceipts(ctx, channelID, posts)
 	for rootID, signal := range fallbackSignals {
 		signal.RootLoaded = rootLoaded[rootID]
 		fallbackSignals[rootID] = signal
@@ -326,6 +333,12 @@ func (c *Client) channelTeam(channelID string) string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.channelTeamID[channelID]
+}
+
+func (c *Client) channelKind(channelID string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.channelType[channelID]
 }
 
 func (c *Client) LoadThreadSignals(ctx context.Context, channelID string) ([]domain.ThreadSignal, error) {
@@ -444,8 +457,20 @@ func (c *Client) LoadThread(ctx context.Context, postID string) ([]domain.Post, 
 		}
 		return posts[i].CreateAt < posts[j].CreateAt
 	})
+	if channelID := threadChannelID(posts); channelID != "" {
+		c.applyReadReceipts(ctx, channelID, posts)
+	}
 	c.hydratePosts(ctx, posts)
 	return posts, nil
+}
+
+func threadChannelID(posts []domain.Post) string {
+	for _, post := range posts {
+		if post.ChannelID != "" {
+			return post.ChannelID
+		}
+	}
+	return ""
 }
 
 func (c *Client) SendPost(ctx context.Context, channelID, message string) (domain.Post, error) {
@@ -561,7 +586,57 @@ func (c *Client) postToDomain(post mmPost, fallbackChannelID string) domain.Post
 	out := post.toDomain(fallbackChannelID)
 	out.Username = c.usernameFor(out.UserID)
 	out.Reactions = c.reactionsToDomain(post.Metadata)
+	if currentUserID := c.currentUserID(); currentUserID != "" && out.UserID == currentUserID {
+		out.Delivery = domain.DeliverySent
+	}
 	return out
+}
+
+func (c *Client) applyReadReceipts(ctx context.Context, channelID string, posts []domain.Post) {
+	readAt := c.channelPeerReadAt(ctx, channelID)
+	if readAt <= 0 {
+		return
+	}
+	currentUserID := c.currentUserID()
+	for i := range posts {
+		if posts[i].UserID == currentUserID && posts[i].CreateAt > 0 && posts[i].CreateAt <= readAt {
+			posts[i].Delivery = domain.DeliveryRead
+		}
+	}
+}
+
+func (c *Client) channelPeerReadAt(ctx context.Context, channelID string) int64 {
+	kind := c.channelKind(channelID)
+	if kind != "D" && kind != "G" {
+		return 0
+	}
+	currentUserID := c.currentUserID()
+	if currentUserID == "" {
+		return 0
+	}
+	var members []mmChannelMember
+	path := "/api/v4/channels/" + url.PathEscape(channelID) + "/members"
+	if err := c.do(ctx, http.MethodGet, path, nil, &members); err != nil {
+		return 0
+	}
+	readAt := int64(0)
+	seenPeers := 0
+	for _, member := range members {
+		if member.UserID == "" || member.UserID == currentUserID {
+			continue
+		}
+		seenPeers++
+		if member.LastViewedAt <= 0 {
+			return 0
+		}
+		if readAt == 0 || member.LastViewedAt < readAt {
+			readAt = member.LastViewedAt
+		}
+	}
+	if seenPeers == 0 {
+		return 0
+	}
+	return readAt
 }
 
 func (c *Client) reactionsToDomain(metadata *mmPostMetadata) []domain.PostReaction {
@@ -981,6 +1056,7 @@ type mmChannel struct {
 
 type mmChannelMember struct {
 	ChannelID    string `json:"channel_id"`
+	UserID       string `json:"user_id"`
 	MsgCount     int    `json:"msg_count"`
 	MentionCount int    `json:"mention_count"`
 	LastViewedAt int64  `json:"last_viewed_at"`

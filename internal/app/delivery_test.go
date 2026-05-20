@@ -85,3 +85,11 @@ func TestThreadReplyShowsPendingThenDelivered(t *testing.T) {
 		t.Fatalf("pending reply not replaced: %#v", got.threadPosts)
 	}
 }
+
+func TestDeliveryReadRendersDoubleCheck(t *testing.T) {
+	m := Model{posts: []domain.Post{{ID: "p1", ChannelID: "d1", UserID: "me", Username: "me", Message: "hello", Delivery: domain.DeliveryRead}}}
+	got, _ := m.renderPosts()
+	if !strings.Contains(got, "✓✓") {
+		t.Fatalf("read delivery badge missing:\n%s", got)
+	}
+}
