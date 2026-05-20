@@ -70,3 +70,39 @@ func TestThreadViewRendersModalWithComposerHint(t *testing.T) {
 		t.Fatalf("thread modal missing expected chat hints:\n%s", got)
 	}
 }
+
+func TestEscFromThreadModalReturnsToTimelineSelection(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
+	m.selectedChannel = 0
+	m.focus = focusTimeline
+	m.selectedPost = 0
+	m.posts = []domain.Post{{ID: "root", ChannelID: "dev", ReplyCount: 1}, {ID: "other", ChannelID: "dev"}}
+
+	updated, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	got := updated.(Model)
+	updated, _ = got.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	got = updated.(Model)
+	if got.threadOpen || got.focus != focusTimeline || got.selectedPost != 0 {
+		t.Fatalf("esc should close modal back to timeline selection: open=%v focus=%v selected=%d", got.threadOpen, got.focus, got.selectedPost)
+	}
+}
+
+func TestNInThreadModalOpensNextUnreadThread(t *testing.T) {
+	m := New(noopBackend{}, testConfig(), false)
+	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev", Unread: 2}}
+	m.selectedChannel = 0
+	m.postsByChannel = map[string][]domain.Post{"dev": {
+		{ID: "root-1", ChannelID: "dev", ThreadUnread: true, CreateAt: 100},
+		{ID: "root-2", ChannelID: "dev", ThreadUnread: true, CreateAt: 200},
+	}}
+	m.threadOpen = true
+	m.threadRootID = "root-2"
+	m.threadFocusComposer = true
+
+	updated, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	got := updated.(Model)
+	if !got.threadOpen || got.threadRootID != "root-1" || !got.threadFocusComposer {
+		t.Fatalf("n should open next unread thread by triage order, root=%q open=%v composer=%v", got.threadRootID, got.threadOpen, got.threadFocusComposer)
+	}
+}

@@ -811,9 +811,9 @@ func (m Model) renderThreadHeader(width int) string {
 	if m.threadLoading {
 		title = "Thread · loading…"
 	}
-	help := "enter reply · alt+enter newline · esc close · alt+4 messages · R react"
+	help := "enter reply · alt+enter newline · n next · esc close · R react"
 	if !m.threadFocusComposer {
-		help = "j/k scroll · alt+3 reply · esc close · R react"
+		help = "j/k scroll · alt+3 reply · n next · esc close · R react"
 	}
 	rootText := "root: loading…"
 	if root, ok := m.threadRootPost(); ok {
@@ -1764,12 +1764,12 @@ func (m Model) threadStatusLine() string {
 	}
 	if m.isRussian() {
 		if m.threadFocusComposer {
-			return "ответ в тред · " + count + " · enter отправить · alt+enter строка · esc закрыть"
+			return "ответ в тред · " + count + " · enter отправить · n следующий тред · esc закрыть"
 		}
 		return "сообщения треда · " + count + " · j/k навигация · alt+3 ответ · esc закрыть"
 	}
 	if m.threadFocusComposer {
-		return "thread reply · " + count + " · enter send · alt+enter newline · esc close"
+		return "thread reply · " + count + " · enter send · n next thread · esc close"
 	}
 	return "thread messages · " + count + " · j/k navigate · alt+3 reply · esc close"
 }

@@ -206,6 +206,7 @@ func (m Model) openSelectedThread() (tea.Model, tea.Cmd) {
 	m.applyThreadRead(channelID, rootID)
 	m.rebuildTriageItems()
 	m.threadOpen = true
+	m.threadReturnFocus = focusTimeline
 	m.threadRootID = rootID
 	m.threadSelected = -1
 	m.loadDraft(threadDraftKey(channelID, rootID))

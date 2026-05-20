@@ -59,6 +59,7 @@ type Model struct {
 	threadSelectedPostID   string
 	threadViewport         viewport.Model
 	threadFocusComposer    bool
+	threadReturnFocus      focusPane
 
 	selectedTeam           int
 	selectedChannel        int
@@ -165,6 +166,7 @@ func New(backend domain.Backend, cfg config.Config, mockFallback bool) Model {
 		threadSignalsByChannel: map[string][]domain.ThreadSignal{},
 		scopeChannels:          map[string][]domain.Channel{},
 		threadSelected:         -1,
+		threadReturnFocus:      focusTimeline,
 		selectedPost:           -1,
 		favoriteChannels:       favorites,
 		collapsedSections:      map[string]bool{},
@@ -331,6 +333,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds := []tea.Cmd{viewChannelCmd(m.ctx, m.backend, msg.channelID), m.saveCacheCmd()}
 		if pendingThreadID != "" {
 			m.threadOpen = true
+			m.threadReturnFocus = focusTimeline
 			m.threadRootID = pendingThreadID
 			m.saveActiveDraft()
 			m.loadDraft(threadDraftKey(msg.channelID, pendingThreadID))
@@ -430,7 +433,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		m.rebuildTriageItems()
 		m.syncThreadViewportSelection()
-		m.status = "reply delivered"
+		m.status = "reply delivered · n next unread thread · esc close"
 		return m, nil
 
 	case postSentMsg:
@@ -1183,6 +1186,7 @@ func (m Model) switchTeam(index int) (tea.Model, tea.Cmd) {
 	m.channelFilter = ""
 	m.filtering = false
 	m.threadOpen = false
+	m.threadReturnFocus = focusTimeline
 	m.threadRootID = ""
 	m.threadPosts = nil
 	m.activityOpen = false
@@ -1444,6 +1448,18 @@ func (m Model) handleThreadKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = "thread messages"
 		}
+		return m, nil
+	case "n", "ctrl+n":
+		if item, ok := nextThreadTriageItem(m, m.currentChannelID(), m.threadRootID, 1); ok {
+			return m.openTriageThread(item)
+		}
+		m.status = "no more unread threads"
+		return m, nil
+	case "N", "ctrl+p":
+		if item, ok := nextThreadTriageItem(m, m.currentChannelID(), m.threadRootID, -1); ok {
+			return m.openTriageThread(item)
+		}
+		m.status = "no previous unread thread"
 		return m, nil
 	}
 
@@ -2178,6 +2194,7 @@ func (m Model) closeThreadForMainNavigation() Model {
 	if !m.threadOpen {
 		return m
 	}
+	returnFocus := m.threadReturnFocus
 	m.saveActiveDraft()
 	m.threadOpen = false
 	m.threadRootID = ""
@@ -2185,16 +2202,20 @@ func (m Model) closeThreadForMainNavigation() Model {
 	m.threadSelected = -1
 	m.threadSelectedPostID = ""
 	m.threadFocusComposer = false
+	m.threadReturnFocus = focusTimeline
 	m.loadDraft(channelDraftKey(m.currentChannelID()))
 	m.resize()
 	m.refreshViewport()
 	m.scrollSelectedPostIntoView()
+	m.focus = returnFocus
+	if m.focus == focusComposer {
+		m.focus = focusTimeline
+	}
 	return m
 }
 
 func (m Model) closeThread() (tea.Model, tea.Cmd) {
 	m = m.closeThreadForMainNavigation()
-	m.focus = focusComposer
 	m.applyFocus()
 	return m, nil
 }

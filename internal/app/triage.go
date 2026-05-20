@@ -272,6 +272,7 @@ func (m Model) openTriageThread(item triageItem) (tea.Model, tea.Cmd) {
 	m.applyThreadRead(channelID, rootID)
 	m.rebuildTriageItems()
 	m.threadOpen = true
+	m.threadReturnFocus = focusTimeline
 	m.threadRootID = rootID
 	m.threadSelected = -1
 	m.threadLoading = true
@@ -593,6 +594,35 @@ func relativeImportantPost(posts []domain.Post, start, delta int) int {
 		}
 	}
 	return bestIdx
+}
+
+func nextThreadTriageItem(m Model, currentChannelID, currentRootID string, delta int) (triageItem, bool) {
+	threads := filterThreadTriageItems(buildThreadReplyTriageItems(m), buildMentionTriageItems(m))
+	if len(threads) == 0 {
+		return triageItem{}, false
+	}
+	sort.SliceStable(threads, func(i, j int) bool { return triageSortLess(threads[i], threads[j]) })
+	if delta == 0 {
+		delta = 1
+	}
+	current := -1
+	for i, item := range threads {
+		if item.ChannelID == currentChannelID && item.RootID == currentRootID {
+			current = i
+			break
+		}
+	}
+	if current < 0 {
+		if delta > 0 {
+			return threads[0], true
+		}
+		return threads[len(threads)-1], true
+	}
+	next := current + delta
+	if next < 0 || next >= len(threads) {
+		return triageItem{}, false
+	}
+	return threads[next], true
 }
 
 func triageChannelByID(m Model, channelID string) (domain.Channel, bool) {
