@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -196,7 +197,7 @@ func (m Model) renderInfo(width, height int) string {
 	contentWidth := max(20, boxWidth-4)
 	var b strings.Builder
 	b.WriteString(headerStyle.Render("Info"))
-	b.WriteString(muted.Render("  i/esc close"))
+	b.WriteString(muted.Render("  i/esc close · x technical"))
 	b.WriteString("\n\n")
 	if len(m.channels) == 0 || m.selectedChannel < 0 || m.selectedChannel >= len(m.channels) {
 		b.WriteString(muted.Render("No channel selected."))
@@ -283,7 +284,7 @@ func (m Model) renderUserInfoBody(ch domain.Channel, width int) string {
 		}
 		return strings.TrimRight(b.String(), "\n")
 	}
-	m.writeUserCard(&b, ch.Users[0], width, true)
+	m.writeUserCard(&b, ch.Users[0], width, m.infoExpanded)
 	b.WriteString("\n")
 	m.writeInfoFacts(&b, []infoFactLine{
 		infoFact("channel", "direct message", true),
@@ -348,44 +349,113 @@ func (m Model) writeUserCard(b *strings.Builder, user domain.User, width int, ex
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
-	m.writeInfoFacts(b, userInfoFacts(user, expanded))
-	if len(user.Timezone) > 0 {
-		b.WriteString(headerStyle.Render("Timezone"))
+	b.WriteString(headerStyle.Render("Profile"))
+	b.WriteString("\n")
+	m.writeInfoFacts(b, userProfileFacts(user))
+	if facts := userActivityFacts(user); len(facts) > 0 {
+		b.WriteString(headerStyle.Render("Activity"))
 		b.WriteString("\n")
-		m.writeInfoFacts(b, mapInfoFacts(user.Timezone))
+		m.writeInfoFacts(b, facts)
 	}
-	if len(user.Props) > 0 {
-		b.WriteString(headerStyle.Render("Props"))
+	if facts := userPrettyProps(user.Props); len(facts) > 0 {
+		b.WriteString(headerStyle.Render("Status"))
 		b.WriteString("\n")
-		m.writeInfoFacts(b, mapInfoFacts(user.Props))
+		m.writeInfoFacts(b, facts)
+	}
+	if expanded {
+		if facts := userTechnicalFacts(user); len(facts) > 0 {
+			b.WriteString(headerStyle.Render("Technical"))
+			b.WriteString("\n")
+			m.writeInfoFacts(b, facts)
+		}
+		if len(user.Timezone) > 0 {
+			b.WriteString(headerStyle.Render("Timezone"))
+			b.WriteString("\n")
+			m.writeInfoFacts(b, mapInfoFacts(user.Timezone))
+		}
+		if facts := mapInfoFactsExcept(user.Props, map[string]struct{}{"customStatus": {}}); len(facts) > 0 {
+			b.WriteString(headerStyle.Render("Props"))
+			b.WriteString("\n")
+			m.writeInfoFacts(b, facts)
+		}
+	} else {
+		b.WriteString(muted.Render("x show technical details"))
+		b.WriteString("\n")
 	}
 }
 
-func userInfoFacts(user domain.User, expanded bool) []infoFactLine {
+func userProfileFacts(user domain.User) []infoFactLine {
 	return []infoFactLine{
-		infoFact("id", user.ID, expanded && user.ID != ""),
 		infoFact("username", "@"+user.Username, user.Username != ""),
 		infoFact("email", user.Email, user.Email != ""),
 		infoFact("first name", user.FirstName, user.FirstName != ""),
 		infoFact("last name", user.LastName, user.LastName != ""),
 		infoFact("nickname", user.Nickname, user.Nickname != ""),
 		infoFact("position", user.Position, user.Position != ""),
-		infoFact("roles", user.Roles, expanded && user.Roles != ""),
 		infoFact("locale", user.Locale, user.Locale != ""),
-		infoFact("auth", user.AuthService, expanded && user.AuthService != ""),
-		infoFact("mfa", fmt.Sprintf("%v", user.MFAActive), expanded && user.MFAActive),
-		infoFact("created", formatDate(user.CreateAt)+" "+formatTime(user.CreateAt), expanded && user.CreateAt > 0),
-		infoFact("updated", formatDate(user.UpdateAt)+" "+formatTime(user.UpdateAt), expanded && user.UpdateAt > 0),
-		infoFact("last active", formatDate(user.LastActivityAt)+" "+formatTime(user.LastActivityAt), user.LastActivityAt > 0),
-		infoFact("picture updated", formatDate(user.LastPictureUpdate)+" "+formatTime(user.LastPictureUpdate), expanded && user.LastPictureUpdate > 0),
-		infoFact("password updated", formatDate(user.LastPasswordUpdate)+" "+formatTime(user.LastPasswordUpdate), expanded && user.LastPasswordUpdate > 0),
+		infoFact("timezone", user.Timezone["automaticTimezone"], user.Timezone["automaticTimezone"] != ""),
 		infoFact("bot", user.BotDescription, user.BotDescription != ""),
 	}
 }
 
+func userActivityFacts(user domain.User) []infoFactLine {
+	return compactInfoFacts([]infoFactLine{
+		infoFact("last active", formatDate(user.LastActivityAt)+" "+formatTime(user.LastActivityAt), user.LastActivityAt > 0),
+	})
+}
+
+func userTechnicalFacts(user domain.User) []infoFactLine {
+	return []infoFactLine{
+		infoFact("id", user.ID, user.ID != ""),
+		infoFact("roles", user.Roles, user.Roles != ""),
+		infoFact("auth", user.AuthService, user.AuthService != ""),
+		infoFact("mfa", fmt.Sprintf("%v", user.MFAActive), user.MFAActive),
+		infoFact("created", formatDate(user.CreateAt)+" "+formatTime(user.CreateAt), user.CreateAt > 0),
+		infoFact("updated", formatDate(user.UpdateAt)+" "+formatTime(user.UpdateAt), user.UpdateAt > 0),
+		infoFact("picture updated", formatDate(user.LastPictureUpdate)+" "+formatTime(user.LastPictureUpdate), user.LastPictureUpdate > 0),
+		infoFact("password updated", formatDate(user.LastPasswordUpdate)+" "+formatTime(user.LastPasswordUpdate), user.LastPasswordUpdate > 0),
+	}
+}
+
+func compactInfoFacts(facts []infoFactLine) []infoFactLine {
+	out := facts[:0]
+	for _, fact := range facts {
+		if fact.Show && strings.TrimSpace(fact.Value) != "" {
+			out = append(out, fact)
+		}
+	}
+	return out
+}
+
+func userPrettyProps(props map[string]string) []infoFactLine {
+	custom := strings.TrimSpace(props["customStatus"])
+	if custom == "" {
+		return nil
+	}
+	var parsed struct {
+		Emoji string `json:"emoji"`
+		Text  string `json:"text"`
+	}
+	if err := json.Unmarshal([]byte(custom), &parsed); err != nil || (parsed.Emoji == "" && parsed.Text == "") {
+		return []infoFactLine{infoFact("custom", custom, true)}
+	}
+	label := strings.TrimSpace(parsed.Text)
+	if parsed.Emoji != "" {
+		label = strings.TrimSpace(":" + parsed.Emoji + ": " + label)
+	}
+	return []infoFactLine{infoFact("custom", label, label != "")}
+}
+
 func mapInfoFacts(values map[string]string) []infoFactLine {
+	return mapInfoFactsExcept(values, nil)
+}
+
+func mapInfoFactsExcept(values map[string]string, skip map[string]struct{}) []infoFactLine {
 	keys := make([]string, 0, len(values))
 	for key, value := range values {
+		if _, ok := skip[key]; ok {
+			continue
+		}
 		if strings.TrimSpace(value) != "" {
 			keys = append(keys, key)
 		}

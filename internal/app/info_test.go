@@ -49,9 +49,26 @@ func TestRenderInfoBodyShowsUserCardDetails(t *testing.T) {
 		}},
 	}
 	got := m.renderInfoBody(ch, 100)
-	for _, want := range []string{"Alice Smith", "@alice", "online", "alice@example.com", "Engineer", "system_user", "Timezone", "Europe/Moscow", "Props", "custom: value", "direct message"} {
+	for _, want := range []string{"Alice Smith", "@alice", "online", "alice@example.com", "Engineer", "Europe/Moscow", "direct message"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("user card missing %q in %q", want, got)
+		}
+	}
+	if strings.Contains(got, "system_user") || strings.Contains(got, "Props") {
+		t.Fatalf("technical details should be hidden by default: %q", got)
+	}
+}
+
+func TestRenderInfoBodyExpandedShowsTechnicalDetailsAndPrettyStatus(t *testing.T) {
+	m := Model{infoExpanded: true}
+	ch := domain.Channel{ID: "dm", Type: "D", Users: []domain.User{{
+		ID: "u1", Username: "alice", DisplayName: "Alice", Roles: "system_user",
+		Props: map[string]string{"customStatus": `{"emoji":"game_die","text":"Нужное не сложно"}`, "custom": "value"},
+	}}}
+	got := m.renderInfoBody(ch, 100)
+	for _, want := range []string{"Technical", "system_user", "Status", ":game_die: Нужное не сложно", "Props", "custom: value"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expanded user card missing %q in %q", want, got)
 		}
 	}
 }

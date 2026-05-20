@@ -99,6 +99,7 @@ type Model struct {
 	suspendedDraftKey      string
 	suspendedDraftValue    string
 	infoOpen               bool
+	infoExpanded           bool
 	teamSwitcherOpen       bool
 	teamSwitcherSelected   int
 	pendingJumpChannelID   string
@@ -930,6 +931,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "i":
 		if m.focus != focusComposer {
 			m.infoOpen = true
+			m.infoExpanded = false
 			return m, nil
 		}
 	case "u":
@@ -1191,6 +1193,9 @@ func (m Model) handleInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "esc", "i", "q":
 		m.infoOpen = false
+		return m, nil
+	case "x":
+		m.infoExpanded = !m.infoExpanded
 		return m, nil
 	}
 	return m, nil
