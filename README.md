@@ -30,7 +30,7 @@ Optional overrides:
 
 ```bash
 # install a specific version
-MMUX_VERSION=v0.1.7 curl -fsSL https://raw.githubusercontent.com/iRootPro/mmux/main/scripts/install.sh | sh
+MMUX_VERSION=v0.1.8 curl -fsSL https://raw.githubusercontent.com/iRootPro/mmux/main/scripts/install.sh | sh
 
 # install without sudo into a user-local bin dir
 mkdir -p ~/.local/bin
@@ -56,14 +56,14 @@ Download the archive for your architecture from the latest release:
 ```bash
 # x86_64 / amd64
 curl -L -o mmux.tar.gz \
-  https://github.com/iRootPro/mmux/releases/download/v0.1.7/mmux_v0.1.7_linux_amd64.tar.gz
+  https://github.com/iRootPro/mmux/releases/download/v0.1.8/mmux_v0.1.8_linux_amd64.tar.gz
 
 # arm64 / aarch64
 # curl -L -o mmux.tar.gz \
-#   https://github.com/iRootPro/mmux/releases/download/v0.1.7/mmux_v0.1.7_linux_arm64.tar.gz
+#   https://github.com/iRootPro/mmux/releases/download/v0.1.8/mmux_v0.1.8_linux_arm64.tar.gz
 
 tar -xzf mmux.tar.gz
-sudo install -m 0755 mmux_v0.1.7_linux_amd64/mmux /usr/local/bin/mmux
+sudo install -m 0755 mmux_v0.1.8_linux_amd64/mmux /usr/local/bin/mmux
 ```
 
 Then run:
