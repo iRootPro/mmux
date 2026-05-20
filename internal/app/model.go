@@ -1096,11 +1096,18 @@ func (m Model) handleTimelineKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.selectPost(0)
 	case "end":
 		return m.selectPost(len(m.posts) - 1)
-	case "o", "enter":
+	case "enter":
+		if post, ok := m.selectedPostValue(); ok && (post.ReplyCount > 0 || post.ThreadUnread || post.RootID != "") {
+			return m.openSelectedThread()
+		}
+		return m.openSelectedPostLink()
+	case "o":
 		return m.openSelectedPostLink()
 	case "y":
 		return m.copySelectedPostText()
 	case "r":
+		return m.openSelectedThread()
+	case ">":
 		return m.quoteSelectedPost()
 	case "p":
 		return m.copySelectedPostPermalink()
@@ -1429,14 +1436,14 @@ func (m Model) handleThreadKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		_ = m.backend.Close()
 		return m, tea.Quit
 	case "esc":
-		if m.threadFocusComposer {
-			m.threadFocusComposer = false
-			m.status = "thread messages"
-			return m, nil
-		}
 		return m.closeThread()
 	case "tab", "shift+tab":
 		m.threadFocusComposer = !m.threadFocusComposer
+		if m.threadFocusComposer {
+			m.status = "thread reply"
+		} else {
+			m.status = "thread messages"
+		}
 		return m, nil
 	}
 
@@ -2011,10 +2018,6 @@ func channelSectionID(channelType string) string {
 func (m *Model) resize() {
 	sidebarWidth := m.sidebarWidth()
 	mainWidth := max(20, m.width-sidebarWidth-1)
-	if m.threadOpen && m.width >= 120 {
-		threadWidth := min(max(46, m.width/3), 72)
-		mainWidth = max(30, m.width-sidebarWidth-threadWidth-2)
-	}
 	composerHeight := 5
 	statusHeight := 1
 	headerHeight := 2
@@ -2027,12 +2030,9 @@ func (m *Model) resize() {
 		m.composer.SetHeight(3)
 	}
 	if m.threadOpen {
-		threadWidth := min(max(46, m.width/3), 72)
-		if m.width < 120 {
-			threadWidth = min(max(70, m.width*3/4), max(70, m.width-6))
-		}
-		m.threadViewport.Width = max(20, threadWidth-4)
-		m.threadViewport.Height = max(3, m.height-12)
+		boxWidth := min(max(78, m.width*4/5), max(50, m.width-6))
+		m.threadViewport.Width = max(20, boxWidth-6)
+		m.threadViewport.Height = max(3, m.height-14)
 	}
 }
 

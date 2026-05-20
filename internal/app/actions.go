@@ -211,7 +211,7 @@ func (m Model) openSelectedThread() (tea.Model, tea.Cmd) {
 	m.loadDraft(threadDraftKey(channelID, rootID))
 	m.threadLoading = true
 	m.threadPosts = nil
-	m.threadFocusComposer = false
+	m.threadFocusComposer = true
 	m.focus = focusComposer
 	m.applyFocus()
 	m.resize()

@@ -22,7 +22,7 @@ func TestThreadHeaderShowsRootPreviewAndReplyCount(t *testing.T) {
 	if !strings.HasPrefix(got, "\n") {
 		t.Fatalf("thread header should reserve first row: %q", got)
 	}
-	for _, want := range []string{"Thread · 2 replies", "root: Alice · Root message text", "tab reply"} {
+	for _, want := range []string{"Thread · 2 replies", "root: Alice · Root message text", "alt+3 reply"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("header missing %q in %q", want, got)
 		}
@@ -66,7 +66,7 @@ func TestThreadComposerShowsInactiveStateOutsideReplyFocus(t *testing.T) {
 
 	got := m.renderThreadComposer(80)
 
-	if !strings.Contains(got, "reply composer inactive") || !strings.Contains(got, "tab reply") {
+	if !strings.Contains(got, "reply composer inactive") || !strings.Contains(got, "alt+3 reply") {
 		t.Fatalf("inactive thread composer label missing: %q", got)
 	}
 	if strings.Count(got, "reply composer inactive") != 1 || strings.Contains(got, "Reply composer inactive") || strings.Contains(got, "reply to: Alice") || strings.Contains(got, "enter send") || strings.Contains(got, "Write a reply…") {

@@ -237,7 +237,7 @@ func TestAltNumberNavigatesThreadPanesWithoutClosingThread(t *testing.T) {
 	}
 }
 
-func TestEscInThreadComposerReturnsToThreadMessagesFirst(t *testing.T) {
+func TestEscInThreadComposerClosesThreadModal(t *testing.T) {
 	m := New(mock.New(), config.Config{Mock: true}, false)
 	m.channels = []domain.Channel{{ID: "dev", Type: "O", DisplayName: "dev"}}
 	m.selectedChannel = 0
@@ -247,14 +247,8 @@ func TestEscInThreadComposerReturnsToThreadMessagesFirst(t *testing.T) {
 
 	updated, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
 	got := updated.(Model)
-	if !got.threadOpen || got.threadFocusComposer {
-		t.Fatalf("first esc should keep thread open and focus messages: threadOpen=%v composer=%v", got.threadOpen, got.threadFocusComposer)
-	}
-
-	updated, _ = got.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
-	got = updated.(Model)
 	if got.threadOpen {
-		t.Fatal("second esc should close thread")
+		t.Fatal("esc should close thread modal")
 	}
 }
 

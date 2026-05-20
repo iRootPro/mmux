@@ -750,31 +750,7 @@ func (m Model) renderActivityLine(post domain.Post, width int) string {
 }
 
 func (m Model) renderThreadLayout(width, height int) string {
-	if width < 120 {
-		return m.renderThreadOverlay(width, height)
-	}
-	bodyHeight := height - 2
-	sidebarWidth := m.sidebarWidth()
-	threadWidth := min(max(46, width/3), 72)
-	mainWidth := max(30, width-sidebarWidth-threadWidth-2)
-	if mainWidth < 30 {
-		return m.renderThreadOverlay(width, height)
-	}
-
-	dividerWidth := 1
-	rightWidth := mainWidth + dividerWidth + threadWidth
-	composer := m.renderThreadComposer(rightWidth)
-	composerHeight := lipgloss.Height(composer)
-	topHeight := max(8, bodyHeight-composerHeight)
-
-	sidebar := m.renderSidebar(sidebarWidth, bodyHeight)
-	timeline := m.renderMain(mainWidth, topHeight)
-	divider := verticalDivider(topHeight)
-	thread := m.renderThreadPanel(threadWidth, topHeight)
-	top := lipgloss.JoinHorizontal(lipgloss.Top, timeline, divider, thread)
-	right := lipgloss.JoinVertical(lipgloss.Left, top, composer)
-	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, right)
-	return body + "\n" + m.renderStatus(width)
+	return m.renderThreadModal(width, height)
 }
 
 func (m Model) renderThreadPanel(width, height int) string {
@@ -804,17 +780,29 @@ func verticalDivider(height int) string {
 }
 
 func (m Model) renderThreadOverlay(width, height int) string {
-	boxWidth := min(max(70, width*3/4), max(70, width-6))
-	boxHeight := min(max(16, height*3/4), max(16, height-4))
+	return m.renderThreadModal(width, height)
+}
+
+func (m Model) renderThreadModal(width, height int) string {
+	statusHeight := 1
+	modalHeight := max(8, height-statusHeight)
+	boxWidth := min(max(78, width*4/5), max(50, width-6))
+	boxHeight := min(max(18, modalHeight-4), max(14, modalHeight-2))
 	composer := m.renderThreadComposer(boxWidth - 2)
 	header := m.renderThreadHeader(max(20, boxWidth-4))
 	contentHeight := max(3, boxHeight-lipgloss.Height(header)-lipgloss.Height(composer)-4)
 	vp := m.threadViewport
 	vp.Width = max(20, boxWidth-4)
 	vp.Height = contentHeight
-	content := lipgloss.NewStyle().Height(contentHeight).Render(vp.View())
-	box := boxStyle.Width(boxWidth).Height(boxHeight).Render(lipgloss.JoinVertical(lipgloss.Left, header, "", content, composer))
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+	contentBorder := colorSubtle
+	if !m.threadFocusComposer {
+		contentBorder = colorAccent
+	}
+	content := lipgloss.NewStyle().Height(contentHeight).Border(lipgloss.NormalBorder(), false, false, false, true).BorderForeground(contentBorder).PaddingLeft(1).Render(vp.View())
+	body := lipgloss.JoinVertical(lipgloss.Left, header, "", content, composer)
+	box := focusStyle.Inherit(boxStyle).Width(boxWidth).Height(boxHeight).Render(body)
+	placed := lipgloss.Place(width, modalHeight, lipgloss.Center, lipgloss.Center, box)
+	return placed + "\n" + m.renderStatus(width)
 }
 
 func (m Model) renderThreadHeader(width int) string {
@@ -823,11 +811,9 @@ func (m Model) renderThreadHeader(width int) string {
 	if m.threadLoading {
 		title = "Thread · loading…"
 	}
-	help := "tab reply · alt+4 messages · alt+3 reply · alt+2 timeline · esc close · R react"
-	if m.threadFocusComposer {
-		help = "alt+4 messages · alt+2 timeline · enter reply · alt+enter newline"
-	} else if m.focus == focusTimeline {
-		help = "alt+4 thread · alt+3 reply · esc close thread"
+	help := "enter reply · alt+enter newline · esc close · alt+4 messages · R react"
+	if !m.threadFocusComposer {
+		help = "j/k scroll · alt+3 reply · esc close · R react"
 	}
 	rootText := "root: loading…"
 	if root, ok := m.threadRootPost(); ok {
@@ -871,7 +857,7 @@ func (m Model) renderThreadComposer(width int) string {
 	labelText := m.threadComposerLabel(max(10, width-4))
 	placeholder := m.tr("Write a reply…")
 	if !m.threadFocusComposer {
-		labelText = truncate(m.tr("reply composer inactive")+" · "+m.tr("tab reply"), max(10, width-4))
+		labelText = truncate(m.tr("reply composer inactive")+" · alt+3 "+m.tr("reply"), max(10, width-4))
 		placeholder = ""
 	}
 	label := muted.Render(labelText)
@@ -1777,21 +1763,15 @@ func (m Model) threadStatusLine() string {
 		count = fmt.Sprintf("%d messages", len(m.threadPosts))
 	}
 	if m.isRussian() {
-		if m.focus == focusTimeline {
-			return "лента · " + count + " в треде · alt+3 ответ · alt+4 тред · esc закрыть тред"
-		}
 		if m.threadFocusComposer {
-			return "ответ в тред · " + count + " · tab сообщения · alt+4 сообщения · alt+2 лента · esc закрыть/к сообщениям"
+			return "ответ в тред · " + count + " · enter отправить · alt+enter строка · esc закрыть"
 		}
-		return "сообщения треда · " + count + " · tab ответ · alt+3 ответ · alt+2 лента · esc закрыть"
-	}
-	if m.focus == focusTimeline {
-		return "timeline · " + count + " in thread · alt+3 reply · alt+4 thread · esc close thread"
+		return "сообщения треда · " + count + " · j/k навигация · alt+3 ответ · esc закрыть"
 	}
 	if m.threadFocusComposer {
-		return "thread reply · " + count + " · tab messages · alt+4 messages · alt+2 timeline · esc close/messages"
+		return "thread reply · " + count + " · enter send · alt+enter newline · esc close"
 	}
-	return "thread messages · " + count + " · tab reply · alt+3 reply · alt+2 timeline · esc close"
+	return "thread messages · " + count + " · j/k navigate · alt+3 reply · esc close"
 }
 
 func (m Model) timelinePositionLabel() string {
@@ -2174,7 +2154,8 @@ func (m Model) helpText() string {
   y                 скопировать текст сообщения
   p                 скопировать permalink
   o / enter         открыть первую ссылку
-  r                 процитировать сообщение
+  r                 ответить в тред
+  >                 процитировать сообщение
   e                 редактировать своё сообщение
   D                 удалить своё сообщение (нажать дважды)
   t                 открыть тред
@@ -2222,7 +2203,8 @@ func (m Model) helpText() string {
   y                 copy selected message text
   p                 copy selected message permalink
   o / enter         open first link in selected message
-  r                 quote selected message into composer
+  r                 reply in thread
+  >                 quote selected message into composer
   e                 edit selected own message
   D                 delete selected own message (press twice)
   t                 open thread for selected message

@@ -51,7 +51,7 @@ func TestRenderStatusShowsComposerAndThreadHints(t *testing.T) {
 	m.threadPosts = []domain.Post{{ID: "root"}, {ID: "r1", RootID: "root"}}
 	m.threadFocusComposer = false
 	got = m.renderStatus(120)
-	if !strings.Contains(got, "thread messages") || !strings.Contains(got, "2 messages") || !strings.Contains(got, "tab reply") || !strings.Contains(got, "esc close") {
+	if !strings.Contains(got, "thread messages") || !strings.Contains(got, "2 messages") || !strings.Contains(got, "alt+3 reply") || !strings.Contains(got, "esc close") {
 		t.Fatalf("thread messages status hint missing: %q", got)
 	}
 	if strings.Count(got, "thread messages") != 1 {
@@ -61,7 +61,7 @@ func TestRenderStatusShowsComposerAndThreadHints(t *testing.T) {
 	m.threadFocusComposer = true
 	m.status = "thread reply"
 	got = m.renderStatus(120)
-	if !strings.Contains(got, "thread reply") || !strings.Contains(got, "2 messages") || !strings.Contains(got, "tab messages") || !strings.Contains(got, "esc close") {
+	if !strings.Contains(got, "thread reply") || !strings.Contains(got, "2 messages") || !strings.Contains(got, "enter send") || !strings.Contains(got, "esc close") {
 		t.Fatalf("thread reply status hint missing: %q", got)
 	}
 	if strings.Count(got, "thread reply") != 1 || strings.Contains(got, "reply right") || strings.Contains(got, "tab thread") {

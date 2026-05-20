@@ -71,13 +71,13 @@ func TestQuoteSelectedPostAppendsBelowExistingDraft(t *testing.T) {
 	}
 }
 
-func TestHandleTimelineKeyRQuotesSelectedPost(t *testing.T) {
+func TestHandleTimelineKeyGreaterThanQuotesSelectedPost(t *testing.T) {
 	m := New(noopBackend{}, testConfig(), false)
 	m.focus = focusTimeline
 	m.posts = []domain.Post{{ID: "p1", Username: "Alice", Message: "Hello"}}
 	m.selectedPost = 0
 
-	updated, _ := m.handleKey(actionKey("r"))
+	updated, _ := m.handleKey(actionKey(">"))
 	got := updated.(Model)
 	if got.focus != focusComposer || got.composer.Value() == "" {
 		t.Fatalf("quote not inserted, focus=%v composer=%q", got.focus, got.composer.Value())
@@ -138,10 +138,10 @@ func TestCopySelectedPostPermalinkSetsStatus(t *testing.T) {
 	}
 }
 
-func TestHelpTextMentionsQuoteAndPermalinkKeys(t *testing.T) {
+func TestHelpTextMentionsQuoteReplyAndPermalinkKeys(t *testing.T) {
 	m := Model{}
 	got := m.helpText()
-	if !strings.Contains(got, "r") || !strings.Contains(got, "quote") || !strings.Contains(got, "p") || !strings.Contains(got, "permalink") {
+	if !strings.Contains(got, "r") || !strings.Contains(got, "reply") || !strings.Contains(got, ">") || !strings.Contains(got, "quote") || !strings.Contains(got, "p") || !strings.Contains(got, "permalink") {
 		t.Fatalf("help text missing message action keys: %q", got)
 	}
 }
